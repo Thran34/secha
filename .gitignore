@@ -1,0 +1,21 @@
+# Binaries
+/secha
+/bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# macOS
+.DS_Store
+
+# IDE — ignore everything (OSS: don't force GoLand on contributors)
+.idea/
+.vscode/
+*.swp
