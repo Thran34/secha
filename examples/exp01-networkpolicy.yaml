@@ -1,0 +1,27 @@
+apiVersion: secha/v1
+kind: Experiment
+metadata:
+  name: networkpolicy-web-to-db
+  hypothesis: >
+    Deleting the redis NetworkPolicy opens L4, but redis AUTH still blocks
+    data exfiltration; the attempt is detected within 5s.
+fault:
+  type: k8s-networkpolicy
+  action: delete
+  target:
+    namespace: target
+    name: redis-allow-web-only
+probe:
+  type: redis-exfil
+  from:
+    namespace: attacker
+    pod: attacker
+  target: redis.target.svc.cluster.local:6379
+observe:
+  window: 10s
+  detectors:
+    - type: redis-acl-log
+      target:
+        namespace: target
+        selector: app=redis
+indicators: [exposure, defense_in_depth_depth, mttd, recovery_latency]
