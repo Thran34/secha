@@ -10,6 +10,7 @@ import (
 	"secha/internal/fault"
 	"secha/internal/indicator"
 	"secha/internal/probe"
+	"secha/internal/steadystate"
 )
 
 const defaultWindow = 10 * time.Second
@@ -37,6 +38,18 @@ func Run(ctx context.Context, exp *experiment.Experiment) (*indicator.Report, er
 	}
 
 	report := &indicator.Report{Experiment: exp.Metadata.Name}
+
+	checks := exp.SteadyState.Checks
+	if len(checks) > 0 {
+		violations, err := steadystate.Verify(ctx, checks)
+		if err != nil {
+			return nil, fmt.Errorf("verify steady state: %w", err)
+		}
+		if len(violations) > 0 {
+			return nil, fmt.Errorf("steady state not satisfied, aborting before fault injection: %s",
+				steadystate.Format(violations))
+		}
+	}
 
 	if err := f.Inject(ctx); err != nil {
 		return nil, fmt.Errorf("inject fault: %w", err)
@@ -77,6 +90,16 @@ func Run(ctx context.Context, exp *experiment.Experiment) (*indicator.Report, er
 		return nil, fmt.Errorf("restore fault: %w", err)
 	}
 	report.RecoveryLatency = time.Since(restoreStart)
+
+	if len(checks) > 0 {
+		violations, err := steadystate.Verify(ctx, checks)
+		if err != nil {
+			return nil, fmt.Errorf("verify recovery integrity: %w", err)
+		}
+		intact := len(violations) == 0
+		report.RecoveryIntegrity = &intact
+		report.RecoveryDetail = steadystate.Format(violations)
+	}
 
 	return report, nil
 }

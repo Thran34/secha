@@ -32,9 +32,10 @@ func runCmd() *cobra.Command {
 	var repeat int
 	var output string
 	cmd := &cobra.Command{
-		Use:   "run <experiment.yaml>",
-		Short: "Run a fault + probe + observation experiment",
-		Args:  cobra.ExactArgs(1),
+		Use:          "run <experiment.yaml>",
+		Short:        "Run a fault + probe + observation experiment",
+		Args:         cobra.ExactArgs(1),
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if repeat < 1 {
 				return fmt.Errorf("--repeat must be >= 1, got %d", repeat)
@@ -90,9 +91,10 @@ func runCmd() *cobra.Command {
 
 func compareCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "compare <baseline.yaml> <treatment.yaml>",
-		Short: "Run two experiments and report the resilience delta between them",
-		Args:  cobra.ExactArgs(2),
+		Use:          "compare <baseline.yaml> <treatment.yaml>",
+		Short:        "Run two experiments and report the resilience delta between them",
+		Args:         cobra.ExactArgs(2),
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			baseExp, err := experiment.Load(args[0])
 			if err != nil {
@@ -123,6 +125,9 @@ func compareCmd() *cobra.Command {
 
 func printPlan(w io.Writer, exp *experiment.Experiment) {
 	fmt.Fprintf(w, "experiment: %s\n", exp.Metadata.Name)
+	if n := len(exp.SteadyState.Checks); n > 0 {
+		fmt.Fprintf(w, "  steady:  %d check(s)\n", n)
+	}
 	fmt.Fprintf(w, "  fault:   %s\n", exp.Fault.Type)
 	fmt.Fprintf(w, "  probe:   %s\n", exp.Probe.Type)
 	fmt.Fprintf(w, "  observe: %d detector(s), window %s\n",
@@ -136,6 +141,12 @@ func printReport(w io.Writer, r *indicator.Report) {
 	fmt.Fprintf(w, "  detected:         %t\n", r.Detected)
 	fmt.Fprintf(w, "  mttd:             %s\n", indicator.FormatMTTD(r.MTTD))
 	fmt.Fprintf(w, "  recovery latency: %s\n", r.RecoveryLatency)
+	if r.RecoveryIntegrity != nil {
+		fmt.Fprintf(w, "  recovery integrity: %t\n", *r.RecoveryIntegrity)
+		if r.RecoveryDetail != "" {
+			fmt.Fprintf(w, "    violations: %s\n", r.RecoveryDetail)
+		}
+	}
 }
 
 func printSummary(w io.Writer, s indicator.Summary) {
@@ -151,6 +162,9 @@ func printSummary(w io.Writer, s indicator.Summary) {
 	}
 	fmt.Fprintf(w, "  recovery (ms):     mean %.1f  sd %.1f  min %.1f  max %.1f\n",
 		s.Recovery.Mean, s.Recovery.Stddev, s.Recovery.Min, s.Recovery.Max)
+	if s.RecoveryIntegrityRate != nil {
+		fmt.Fprintf(w, "  recovery integrity rate: %.0f%%\n", *s.RecoveryIntegrityRate*100)
+	}
 }
 
 func printComparison(c indicator.Comparison) {
@@ -164,11 +178,12 @@ func printComparison(c indicator.Comparison) {
 }
 
 type runJSON struct {
-	Reachable   bool     `json:"reachable"`
-	DataExposed bool     `json:"dataExposed"`
-	Detected    bool     `json:"detected"`
-	MTTDMs      *float64 `json:"mttdMs"`
-	RecoveryMs  float64  `json:"recoveryMs"`
+	Reachable         bool     `json:"reachable"`
+	DataExposed       bool     `json:"dataExposed"`
+	Detected          bool     `json:"detected"`
+	MTTDMs            *float64 `json:"mttdMs"`
+	RecoveryMs        float64  `json:"recoveryMs"`
+	RecoveryIntegrity *bool    `json:"recoveryIntegrity"`
 }
 
 type statsJSON struct {
@@ -180,12 +195,13 @@ type statsJSON struct {
 }
 
 type summaryJSON struct {
-	Runs            int        `json:"runs"`
-	ReachableRate   float64    `json:"reachableRate"`
-	DataExposedRate float64    `json:"dataExposedRate"`
-	DetectedRate    float64    `json:"detectedRate"`
-	MTTDMs          *statsJSON `json:"mttdMs"`
-	RecoveryMs      statsJSON  `json:"recoveryMs"`
+	Runs                  int        `json:"runs"`
+	ReachableRate         float64    `json:"reachableRate"`
+	DataExposedRate       float64    `json:"dataExposedRate"`
+	DetectedRate          float64    `json:"detectedRate"`
+	MTTDMs                *statsJSON `json:"mttdMs"`
+	RecoveryMs            statsJSON  `json:"recoveryMs"`
+	RecoveryIntegrityRate *float64   `json:"recoveryIntegrityRate"`
 }
 
 type reportJSON struct {
@@ -198,10 +214,11 @@ func printJSON(w io.Writer, name string, reports []*indicator.Report) error {
 	out := reportJSON{Experiment: name}
 	for _, r := range reports {
 		rj := runJSON{
-			Reachable:   r.Reachable,
-			DataExposed: r.DataExposed,
-			Detected:    r.Detected,
-			RecoveryMs:  durMs(r.RecoveryLatency),
+			Reachable:         r.Reachable,
+			DataExposed:       r.DataExposed,
+			Detected:          r.Detected,
+			RecoveryMs:        durMs(r.RecoveryLatency),
+			RecoveryIntegrity: r.RecoveryIntegrity,
 		}
 		if r.MTTD != nil {
 			ms := durMs(*r.MTTD)
@@ -212,11 +229,12 @@ func printJSON(w io.Writer, name string, reports []*indicator.Report) error {
 
 	s := indicator.Aggregate(reports)
 	out.Summary = summaryJSON{
-		Runs:            s.Runs,
-		ReachableRate:   s.ReachableRate,
-		DataExposedRate: s.DataExposedRate,
-		DetectedRate:    s.DetectedRate,
-		RecoveryMs:      toStatsJSON(s.Recovery),
+		Runs:                  s.Runs,
+		ReachableRate:         s.ReachableRate,
+		DataExposedRate:       s.DataExposedRate,
+		DetectedRate:          s.DetectedRate,
+		RecoveryMs:            toStatsJSON(s.Recovery),
+		RecoveryIntegrityRate: s.RecoveryIntegrityRate,
 	}
 	if s.MTTD != nil {
 		sj := toStatsJSON(*s.MTTD)

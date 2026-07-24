@@ -14,12 +14,13 @@ type Stats struct {
 }
 
 type Summary struct {
-	Runs            int
-	ReachableRate   float64
-	DataExposedRate float64
-	DetectedRate    float64
-	MTTD            *Stats
-	Recovery        Stats
+	Runs                  int
+	ReachableRate         float64
+	DataExposedRate       float64
+	DetectedRate          float64
+	MTTD                  *Stats
+	Recovery              Stats
+	RecoveryIntegrityRate *float64
 }
 
 func Aggregate(reports []*Report) Summary {
@@ -29,6 +30,7 @@ func Aggregate(reports []*Report) Summary {
 	}
 
 	var reachable, exposed, detected int
+	var integrityChecked, integrityIntact int
 	var mttdMs, recoveryMs []float64
 	for _, r := range reports {
 		if r.Reachable {
@@ -43,6 +45,12 @@ func Aggregate(reports []*Report) Summary {
 		if r.MTTD != nil {
 			mttdMs = append(mttdMs, durMs(*r.MTTD))
 		}
+		if r.RecoveryIntegrity != nil {
+			integrityChecked++
+			if *r.RecoveryIntegrity {
+				integrityIntact++
+			}
+		}
 		recoveryMs = append(recoveryMs, durMs(r.RecoveryLatency))
 	}
 
@@ -53,6 +61,10 @@ func Aggregate(reports []*Report) Summary {
 	if len(mttdMs) > 0 {
 		st := computeStats(mttdMs)
 		s.MTTD = &st
+	}
+	if integrityChecked > 0 {
+		rate := float64(integrityIntact) / float64(integrityChecked)
+		s.RecoveryIntegrityRate = &rate
 	}
 	s.Recovery = computeStats(recoveryMs)
 	return s

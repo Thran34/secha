@@ -7,6 +7,17 @@ metadata:
     to the redis-auth secret in the target namespace. secha injects the excess
     grant (fault), the attacker reads the secret via impersonation (probe), and
     a posture check (SubjectAccessReview) detects the privilege drift.
+steadyState:
+  checks:
+    - type: k8s-secret-read
+      as:
+        namespace: attacker
+        name: default
+      target:
+        namespace: target
+        secret: redis-auth
+      expect:
+        dataExposed: false
 fault:
   type: k8s-rbac
   action: grant

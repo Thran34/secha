@@ -6,6 +6,22 @@ metadata:
     Control variant with defense-in-depth removed: redis has no AUTH, so
     deleting the NetworkPolicy exposes the secret directly and no auth-based
     detection fires. Quantifies what the AUTH layer buys (resilience delta).
+steadyState:
+  checks:
+    - type: redis-exfil
+      from:
+        namespace: attacker
+        pod: attacker
+      target: redis-open.target.svc.cluster.local:6379
+      expect:
+        reachable: false
+    - type: redis-key-present
+      target:
+        namespace: target
+        selector: app=redis-open
+      key: secret:flag
+      expect:
+        dataExposed: true
 fault:
   type: k8s-networkpolicy
   action: delete

@@ -9,18 +9,51 @@ import (
 )
 
 type Experiment struct {
-	APIVersion string   `json:"apiVersion"`
-	Kind       string   `json:"kind"`
-	Metadata   Metadata `json:"metadata"`
-	Fault      Spec     `json:"fault"`
-	Probe      Spec     `json:"probe"`
-	Observe    Observe  `json:"observe"`
-	Indicators []string `json:"indicators"`
+	APIVersion  string      `json:"apiVersion"`
+	Kind        string      `json:"kind"`
+	Metadata    Metadata    `json:"metadata"`
+	SteadyState SteadyState `json:"steadyState"`
+	Fault       Spec        `json:"fault"`
+	Probe       Spec        `json:"probe"`
+	Observe     Observe     `json:"observe"`
+	Indicators  []string    `json:"indicators"`
 }
 
 type Metadata struct {
 	Name       string `json:"name"`
 	Hypothesis string `json:"hypothesis"`
+}
+
+type SteadyState struct {
+	Checks []Check `json:"checks"`
+}
+
+type Check struct {
+	Probe  Spec
+	Expect Expect
+}
+
+type Expect struct {
+	Reachable   *bool `json:"reachable"`
+	DataExposed *bool `json:"dataExposed"`
+}
+
+func (c *Check) UnmarshalJSON(b []byte) error {
+	if err := c.Probe.UnmarshalJSON(b); err != nil {
+		return err
+	}
+	var wrapper struct {
+		Expect Expect `json:"expect"`
+	}
+	if err := json.Unmarshal(b, &wrapper); err != nil {
+		return err
+	}
+	c.Expect = wrapper.Expect
+	return nil
+}
+
+func (e Expect) IsEmpty() bool {
+	return e.Reachable == nil && e.DataExposed == nil
 }
 
 type Observe struct {
@@ -76,6 +109,15 @@ func (e *Experiment) Validate() error {
 	}
 	if e.Probe.Type == "" {
 		return fmt.Errorf("probe.type is required")
+	}
+	for i, c := range e.SteadyState.Checks {
+		if c.Probe.Type == "" {
+			return fmt.Errorf("steadyState.checks[%d].type is required", i)
+		}
+		if c.Expect.IsEmpty() {
+			return fmt.Errorf("steadyState.checks[%d] (%s): expect must set reachable and/or dataExposed",
+				i, c.Probe.Type)
+		}
 	}
 	return nil
 }

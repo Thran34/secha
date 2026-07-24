@@ -27,13 +27,35 @@ func Compare(baseline, treatment *Report) Comparison {
 }
 
 func (c Comparison) Fields() []Field {
-	return []Field{
+	fields := []Field{
 		boolField("reachable", c.Baseline.Reachable, c.Treatment.Reachable, neutral),
 		boolField("data exposed", c.Baseline.DataExposed, c.Treatment.DataExposed, lowerBetter),
 		boolField("detected", c.Baseline.Detected, c.Treatment.Detected, higherBetter),
 		mttdField(c.Baseline.MTTD, c.Treatment.MTTD),
 		durField("recovery latency", c.Baseline.RecoveryLatency, c.Treatment.RecoveryLatency, neutral),
 	}
+	if c.Baseline.RecoveryIntegrity != nil || c.Treatment.RecoveryIntegrity != nil {
+		fields = append(fields, optBoolField("recovery integrity",
+			c.Baseline.RecoveryIntegrity, c.Treatment.RecoveryIntegrity))
+	}
+	return fields
+}
+
+func optBoolField(name string, b, t *bool) Field {
+	f := Field{Name: name, Baseline: optBoolStr(b), Treatment: optBoolStr(t)}
+	if b == nil || t == nil {
+		f.Verdict = "—"
+		return f
+	}
+	f.Verdict = verdict(boolScore(*t)-boolScore(*b), higherBetter)
+	return f
+}
+
+func optBoolStr(v *bool) string {
+	if v == nil {
+		return "n/a"
+	}
+	return boolStr(*v)
 }
 
 func boolField(name string, b, t bool, dir direction) Field {
