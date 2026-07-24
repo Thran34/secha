@@ -33,6 +33,16 @@ func NewClient() (*Client, error) {
 	return &Client{Clientset: cs, config: cfg}, nil
 }
 
+func (c *Client) ClientsetAs(user string) (*kubernetes.Clientset, error) {
+	cfg := rest.CopyConfig(c.config)
+	cfg.Impersonate = rest.ImpersonationConfig{UserName: user}
+	cs, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("build impersonating clientset for %q: %w", user, err)
+	}
+	return cs, nil
+}
+
 func (c *Client) Exec(ctx context.Context, namespace, pod, container string, command []string) (string, string, error) {
 	if container == "" {
 		p, err := c.Clientset.CoreV1().Pods(namespace).Get(ctx, pod, metav1.GetOptions{})

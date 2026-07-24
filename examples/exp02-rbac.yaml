@@ -1,0 +1,40 @@
+apiVersion: secha/v1
+kind: Experiment
+metadata:
+  name: rbac-secret-read
+  hypothesis: >
+    A misconfigured RoleBinding grants the attacker ServiceAccount read access
+    to the redis-auth secret in the target namespace. secha injects the excess
+    grant (fault), the attacker reads the secret via impersonation (probe), and
+    a posture check (SubjectAccessReview) detects the privilege drift.
+fault:
+  type: k8s-rbac
+  action: grant
+  subject:
+    namespace: attacker
+    name: default
+  grant:
+    namespace: target
+    resources: [secrets]
+    verbs: [get, list]
+probe:
+  type: k8s-secret-read
+  as:
+    namespace: attacker
+    name: default
+  target:
+    namespace: target
+    secret: redis-auth
+observe:
+  window: 10s
+  detectors:
+    - type: k8s-access-review
+      subject:
+        namespace: attacker
+        name: default
+      resource:
+        namespace: target
+        verb: get
+        resource: secrets
+        name: redis-auth
+indicators: [exposure, detection_coverage, mttd, recovery_latency]
