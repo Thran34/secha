@@ -136,6 +136,10 @@ func printPlan(w io.Writer, exp *experiment.Experiment) {
 
 func printReport(w io.Writer, r *indicator.Report) {
 	fmt.Fprintf(w, "\nreport:\n")
+	fmt.Fprintf(w, "  fault applied:    %t\n", r.FaultApplied)
+	if !r.FaultApplied && r.RejectionDetail != "" {
+		fmt.Fprintf(w, "    rejected by:    %s\n", r.RejectionDetail)
+	}
 	fmt.Fprintf(w, "  reachable:        %t\n", r.Reachable)
 	fmt.Fprintf(w, "  data exposed:     %t\n", r.DataExposed)
 	fmt.Fprintf(w, "  detected:         %t\n", r.Detected)
@@ -151,6 +155,7 @@ func printReport(w io.Writer, r *indicator.Report) {
 
 func printSummary(w io.Writer, s indicator.Summary) {
 	fmt.Fprintf(w, "\nsummary over %d runs:\n", s.Runs)
+	fmt.Fprintf(w, "  fault applied rate: %.0f%%\n", s.FaultAppliedRate*100)
 	fmt.Fprintf(w, "  reachable rate:    %.0f%%\n", s.ReachableRate*100)
 	fmt.Fprintf(w, "  data exposed rate: %.0f%%\n", s.DataExposedRate*100)
 	fmt.Fprintf(w, "  detected rate:     %.0f%%\n", s.DetectedRate*100)
@@ -178,6 +183,8 @@ func printComparison(c indicator.Comparison) {
 }
 
 type runJSON struct {
+	FaultApplied      bool     `json:"faultApplied"`
+	RejectionDetail   string   `json:"rejectionDetail,omitempty"`
 	Reachable         bool     `json:"reachable"`
 	DataExposed       bool     `json:"dataExposed"`
 	Detected          bool     `json:"detected"`
@@ -196,6 +203,7 @@ type statsJSON struct {
 
 type summaryJSON struct {
 	Runs                  int        `json:"runs"`
+	FaultAppliedRate      float64    `json:"faultAppliedRate"`
 	ReachableRate         float64    `json:"reachableRate"`
 	DataExposedRate       float64    `json:"dataExposedRate"`
 	DetectedRate          float64    `json:"detectedRate"`
@@ -214,6 +222,8 @@ func printJSON(w io.Writer, name string, reports []*indicator.Report) error {
 	out := reportJSON{Experiment: name}
 	for _, r := range reports {
 		rj := runJSON{
+			FaultApplied:      r.FaultApplied,
+			RejectionDetail:   r.RejectionDetail,
 			Reachable:         r.Reachable,
 			DataExposed:       r.DataExposed,
 			Detected:          r.Detected,
@@ -230,6 +240,7 @@ func printJSON(w io.Writer, name string, reports []*indicator.Report) error {
 	s := indicator.Aggregate(reports)
 	out.Summary = summaryJSON{
 		Runs:                  s.Runs,
+		FaultAppliedRate:      s.FaultAppliedRate,
 		ReachableRate:         s.ReachableRate,
 		DataExposedRate:       s.DataExposedRate,
 		DetectedRate:          s.DetectedRate,

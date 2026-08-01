@@ -93,10 +93,16 @@ func (f *rbacFault) Inject(ctx context.Context) error {
 
 	roles := f.client.Clientset.RbacV1().Roles(f.grantNS)
 	if _, err := roles.Create(ctx, role, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+		if k8s.IsAdmissionDenied(err) {
+			return Rejected(err.Error())
+		}
 		return fmt.Errorf("create role %s/%s: %w", f.grantNS, f.objName, err)
 	}
 	bindings := f.client.Clientset.RbacV1().RoleBindings(f.grantNS)
 	if _, err := bindings.Create(ctx, rb, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+		if k8s.IsAdmissionDenied(err) {
+			return Rejected(err.Error())
+		}
 		return fmt.Errorf("create rolebinding %s/%s: %w", f.grantNS, f.objName, err)
 	}
 	return nil

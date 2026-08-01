@@ -15,6 +15,7 @@ type Stats struct {
 
 type Summary struct {
 	Runs                  int
+	FaultAppliedRate      float64
 	ReachableRate         float64
 	DataExposedRate       float64
 	DetectedRate          float64
@@ -29,10 +30,13 @@ func Aggregate(reports []*Report) Summary {
 		return s
 	}
 
-	var reachable, exposed, detected int
+	var applied, reachable, exposed, detected int
 	var integrityChecked, integrityIntact int
 	var mttdMs, recoveryMs []float64
 	for _, r := range reports {
+		if r.FaultApplied {
+			applied++
+		}
 		if r.Reachable {
 			reachable++
 		}
@@ -55,6 +59,7 @@ func Aggregate(reports []*Report) Summary {
 	}
 
 	n := float64(len(reports))
+	s.FaultAppliedRate = float64(applied) / n
 	s.ReachableRate = float64(reachable) / n
 	s.DataExposedRate = float64(exposed) / n
 	s.DetectedRate = float64(detected) / n

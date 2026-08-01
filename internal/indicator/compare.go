@@ -27,11 +27,13 @@ func Compare(baseline, treatment *Report) Comparison {
 }
 
 func (c Comparison) Fields() []Field {
+	observable := c.Baseline.FaultApplied && c.Treatment.FaultApplied
 	fields := []Field{
+		boolField("fault applied", c.Baseline.FaultApplied, c.Treatment.FaultApplied, lowerBetter),
 		boolField("reachable", c.Baseline.Reachable, c.Treatment.Reachable, neutral),
 		boolField("data exposed", c.Baseline.DataExposed, c.Treatment.DataExposed, lowerBetter),
-		boolField("detected", c.Baseline.Detected, c.Treatment.Detected, higherBetter),
-		mttdField(c.Baseline.MTTD, c.Treatment.MTTD),
+		detectedField(c.Baseline, c.Treatment, observable),
+		mttdField(c.Baseline, c.Treatment, observable),
 		durField("recovery latency", c.Baseline.RecoveryLatency, c.Treatment.RecoveryLatency, neutral),
 	}
 	if c.Baseline.RecoveryIntegrity != nil || c.Treatment.RecoveryIntegrity != nil {
@@ -67,19 +69,55 @@ func boolField(name string, b, t bool, dir direction) Field {
 	}
 }
 
-func mttdField(b, t *time.Duration) Field {
-	f := Field{Name: "mttd", Baseline: FormatMTTD(b), Treatment: FormatMTTD(t)}
+func detectedField(b, t *Report, observable bool) Field {
+	f := Field{
+		Name:      "detected",
+		Baseline:  appliedBoolStr(b.FaultApplied, b.Detected),
+		Treatment: appliedBoolStr(t.FaultApplied, t.Detected),
+	}
+	if !observable {
+		f.Verdict = "—"
+		return f
+	}
+	f.Verdict = verdict(boolScore(t.Detected)-boolScore(b.Detected), higherBetter)
+	return f
+}
+
+func mttdField(b, t *Report, observable bool) Field {
+	f := Field{
+		Name:      "mttd",
+		Baseline:  appliedMTTDStr(b.FaultApplied, b.MTTD),
+		Treatment: appliedMTTDStr(t.FaultApplied, t.MTTD),
+	}
+	if !observable {
+		f.Verdict = "—"
+		return f
+	}
 	switch {
-	case b == nil && t == nil:
+	case b.MTTD == nil && t.MTTD == nil:
 		f.Verdict = "same"
-	case b == nil:
+	case b.MTTD == nil:
 		f.Verdict = "improved"
-	case t == nil:
+	case t.MTTD == nil:
 		f.Verdict = "regressed"
 	default:
-		f.Verdict = verdict(sign(int64(*t-*b)), lowerBetter)
+		f.Verdict = verdict(sign(int64(*t.MTTD-*b.MTTD)), lowerBetter)
 	}
 	return f
+}
+
+func appliedBoolStr(applied, v bool) string {
+	if !applied {
+		return "n/a"
+	}
+	return boolStr(v)
+}
+
+func appliedMTTDStr(applied bool, d *time.Duration) string {
+	if !applied {
+		return "n/a"
+	}
+	return FormatMTTD(d)
 }
 
 func durField(name string, b, t time.Duration, dir direction) Field {

@@ -2,10 +2,17 @@ package fault
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"secha/internal/experiment"
 )
+
+var ErrRejected = errors.New("fault rejected by the cluster")
+
+func Rejected(detail string) error {
+	return fmt.Errorf("%w: %s", ErrRejected, detail)
+}
 
 type Fault interface {
 	Inject(ctx context.Context) error

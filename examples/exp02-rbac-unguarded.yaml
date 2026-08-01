@@ -1,0 +1,50 @@
+apiVersion: secha/v1
+kind: Experiment
+metadata:
+  name: rbac-secret-read-unguarded
+  hypothesis: >
+    Control variant for exp02: the same excess RoleBinding is injected in a
+    namespace no admission policy watches. The grant is accepted, the attacker
+    reads the secret, and only after-the-fact posture monitoring notices.
+steadyState:
+  checks:
+    - type: k8s-secret-read
+      as:
+        namespace: attacker
+        name: default
+      target:
+        namespace: target-unguarded
+        secret: redis-auth
+      expect:
+        dataExposed: false
+fault:
+  type: k8s-rbac
+  action: grant
+  subject:
+    namespace: attacker
+    name: default
+  grant:
+    namespace: target-unguarded
+    resources: [secrets]
+    verbs: [get, list]
+probe:
+  type: k8s-secret-read
+  as:
+    namespace: attacker
+    name: default
+  target:
+    namespace: target-unguarded
+    secret: redis-auth
+observe:
+  window: 10s
+  detectors:
+    - type: k8s-access-review
+      subject:
+        namespace: attacker
+        name: default
+      resource:
+        namespace: target-unguarded
+        verb: get
+        resource: secrets
+        name: redis-auth
+indicators: [exposure, detection_coverage, mttd, recovery_latency]

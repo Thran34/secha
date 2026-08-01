@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -51,8 +52,13 @@ func Run(ctx context.Context, exp *experiment.Experiment) (*indicator.Report, er
 		}
 	}
 
+	report.FaultApplied = true
 	if err := f.Inject(ctx); err != nil {
-		return nil, fmt.Errorf("inject fault: %w", err)
+		if !errors.Is(err, fault.ErrRejected) {
+			return nil, fmt.Errorf("inject fault: %w", err)
+		}
+		report.FaultApplied = false
+		report.RejectionDetail = err.Error()
 	}
 	faultAt := time.Now()
 	defer f.Restore(ctx)
