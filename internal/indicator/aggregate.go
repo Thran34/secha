@@ -75,6 +75,13 @@ func Aggregate(reports []*Report) Summary {
 	return s
 }
 
+func StatsOf(xs []float64) Stats {
+	if len(xs) == 0 {
+		return Stats{}
+	}
+	return computeStats(xs)
+}
+
 func computeStats(xs []float64) Stats {
 	st := Stats{N: len(xs), Min: xs[0], Max: xs[0]}
 	var sum float64

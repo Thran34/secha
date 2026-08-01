@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"secha/internal/coverage"
 	"secha/internal/engine"
 	"secha/internal/experiment"
 	"secha/internal/indicator"
@@ -21,7 +23,7 @@ func main() {
 		Use:   "secha",
 		Short: "Security Chaos Engineering experiment runner",
 	}
-	root.AddCommand(runCmd(), compareCmd())
+	root.AddCommand(runCmd(), compareCmd(), coverageCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -121,6 +123,91 @@ func compareCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func coverageCmd() *cobra.Command {
+	var repeat int
+	var navigator string
+	cmd := &cobra.Command{
+		Use:          "coverage <experiment.yaml>...",
+		Short:        "Run experiments and report measured ATT&CK and D3FEND coverage",
+		Args:         cobra.MinimumNArgs(1),
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if repeat < 1 {
+				return fmt.Errorf("--repeat must be >= 1, got %d", repeat)
+			}
+
+			var observations []coverage.Observation
+			for _, path := range args {
+				exp, err := experiment.Load(path)
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(os.Stderr, "running %s (%d run(s))\n", exp.Metadata.Name, repeat)
+
+				var reports []*indicator.Report
+				for i := 0; i < repeat; i++ {
+					rep, err := engine.Run(context.Background(), exp)
+					if err != nil {
+						return fmt.Errorf("%s run %d/%d: %w", exp.Metadata.Name, i+1, repeat, err)
+					}
+					reports = append(reports, rep)
+				}
+				observations = append(observations, coverage.Observation{Experiment: exp, Reports: reports})
+			}
+
+			result := coverage.Build(observations)
+			printCoverage(os.Stdout, result)
+
+			if navigator != "" {
+				f, err := os.Create(navigator)
+				if err != nil {
+					return fmt.Errorf("create navigator layer: %w", err)
+				}
+				defer f.Close()
+				if err := coverage.WriteNavigatorLayer(f, "secha measured resilience", result); err != nil {
+					return fmt.Errorf("write navigator layer: %w", err)
+				}
+				fmt.Fprintf(os.Stderr, "\nnavigator layer written to %s\n", navigator)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().IntVar(&repeat, "repeat", 1, "number of times to run each experiment")
+	cmd.Flags().StringVar(&navigator, "navigator", "", "write an ATT&CK Navigator layer to this path")
+	return cmd
+}
+
+func printCoverage(w io.Writer, r coverage.Result) {
+	printTechniques(w, "ATT&CK techniques exercised", r.Attack)
+	printTechniques(w, "D3FEND countermeasures involved", r.D3fend)
+	if len(r.Unmapped) > 0 {
+		fmt.Fprintf(w, "\nunmapped experiments (no attack/d3fend annotation):\n")
+		for _, name := range r.Unmapped {
+			fmt.Fprintf(w, "  %s\n", name)
+		}
+	}
+}
+
+func printTechniques(w io.Writer, title string, techniques []coverage.Technique) {
+	fmt.Fprintf(w, "\n%s:\n\n", title)
+	if len(techniques) == 0 {
+		fmt.Fprintf(w, "  none\n")
+		return
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "  id\truns\texposed\tdetected\tprevented\tmttd (ms)\tstatus\texperiments")
+	for _, t := range techniques {
+		mttd := "—"
+		if t.MTTD != nil {
+			mttd = fmt.Sprintf("%.1f", t.MTTD.Mean)
+		}
+		fmt.Fprintf(tw, "  %s\t%d\t%.0f%%\t%.0f%%\t%.0f%%\t%s\t%s\t%s\n",
+			t.ID, t.Runs, t.ExposedRate*100, t.DetectedRate*100, t.PreventedRate*100,
+			mttd, t.Status(), strings.Join(t.Experiments, ", "))
+	}
+	tw.Flush()
 }
 
 func printPlan(w io.Writer, exp *experiment.Experiment) {

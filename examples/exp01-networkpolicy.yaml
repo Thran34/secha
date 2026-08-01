@@ -23,6 +23,7 @@ steadyState:
         dataExposed: true
 fault:
   type: k8s-networkpolicy
+  d3fend: [D3-ITF]
   action: delete
   target:
     namespace: target

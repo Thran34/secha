@@ -351,6 +351,179 @@ observe:
 	}
 }
 
+func TestSpecParsesMitreAnnotations(t *testing.T) {
+	exp := parse(t, `
+kind: Experiment
+metadata:
+  name: x
+fault:
+  type: k8s-rbac
+  attack: [T1098.006]
+  d3fend: [D3-AMED]
+probe:
+  type: k8s-secret-read
+  attack: [T1552.007]
+observe:
+  detectors:
+    - type: k8s-access-review
+`)
+
+	if err := exp.Validate(); err != nil {
+		t.Fatalf("Validate() = %v, want nil", err)
+	}
+	if got := exp.Fault.Attack; len(got) != 1 || got[0] != "T1098.006" {
+		t.Errorf("fault.attack = %v, want [T1098.006]", got)
+	}
+	if got := exp.Fault.D3fend; len(got) != 1 || got[0] != "D3-AMED" {
+		t.Errorf("fault.d3fend = %v, want [D3-AMED]", got)
+	}
+	if got := exp.Probe.Attack; len(got) != 1 || got[0] != "T1552.007" {
+		t.Errorf("probe.attack = %v, want [T1552.007]", got)
+	}
+	if exp.Probe.D3fend != nil {
+		t.Errorf("probe.d3fend = %v, want nil when absent", exp.Probe.D3fend)
+	}
+}
+
+func TestAnnotatedSpecsCoversFaultProbeAndDetectors(t *testing.T) {
+	exp := parse(t, `
+kind: Experiment
+metadata:
+  name: x
+fault:
+  type: k8s-networkpolicy
+probe:
+  type: redis-exfil
+observe:
+  detectors:
+    - type: redis-acl-log
+    - type: k8s-access-review
+`)
+
+	got := exp.AnnotatedSpecs()
+
+	for _, label := range []string{"fault", "probe", "observe.detectors[0]", "observe.detectors[1]"} {
+		if _, ok := got[label]; !ok {
+			t.Errorf("AnnotatedSpecs() is missing %q", label)
+		}
+	}
+	if len(got) != 4 {
+		t.Errorf("got %d specs, want 4: %v", len(got), got)
+	}
+}
+
+func TestValidateRejectsMalformedTechniqueIDs(t *testing.T) {
+	cases := []struct {
+		name    string
+		doc     string
+		wantErr string
+	}{
+		{
+			name: "attack id without the T prefix",
+			doc: `
+kind: Experiment
+metadata:
+  name: x
+fault:
+  type: f
+  attack: ["1098.006"]
+probe:
+  type: p
+`,
+			wantErr: "is not an ATT&CK technique id",
+		},
+		{
+			name: "attack id with too few digits",
+			doc: `
+kind: Experiment
+metadata:
+  name: x
+fault:
+  type: f
+  attack: [T109]
+probe:
+  type: p
+`,
+			wantErr: "is not an ATT&CK technique id",
+		},
+		{
+			name: "attack subtechnique with wrong digit count",
+			doc: `
+kind: Experiment
+metadata:
+  name: x
+fault:
+  type: f
+probe:
+  type: p
+  attack: [T1098.6]
+`,
+			wantErr: "is not an ATT&CK technique id",
+		},
+		{
+			name: "d3fend id without the D3 prefix",
+			doc: `
+kind: Experiment
+metadata:
+  name: x
+fault:
+  type: f
+  d3fend: [ITF]
+probe:
+  type: p
+`,
+			wantErr: "is not a D3FEND technique id",
+		},
+		{
+			name: "annotation on a detector",
+			doc: `
+kind: Experiment
+metadata:
+  name: x
+fault:
+  type: f
+probe:
+  type: p
+observe:
+  detectors:
+    - type: d
+      attack: [nonsense]
+`,
+			wantErr: "is not an ATT&CK technique id",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			err := parse(t, c.doc).Validate()
+			if err == nil {
+				t.Fatalf("Validate() = nil, want an error containing %q", c.wantErr)
+			}
+			if !strings.Contains(err.Error(), c.wantErr) {
+				t.Errorf("Validate() = %q, want it to contain %q", err, c.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateAcceptsWellFormedTechniqueIDs(t *testing.T) {
+	for _, id := range []string{"T1098", "T1098.006", "T1552.007"} {
+		doc := `
+kind: Experiment
+metadata:
+  name: x
+fault:
+  type: f
+  attack: [` + id + `]
+probe:
+  type: p
+`
+		if err := parse(t, doc).Validate(); err != nil {
+			t.Errorf("Validate() rejected %q: %v", id, err)
+		}
+	}
+}
+
 func TestLoadRejectsMissingFile(t *testing.T) {
 	if _, err := Load("testdata/does-not-exist.yaml"); err == nil {
 		t.Error("Load() = nil error, want a read failure")

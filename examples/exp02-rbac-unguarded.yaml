@@ -19,6 +19,7 @@ steadyState:
         dataExposed: false
 fault:
   type: k8s-rbac
+  attack: [T1098.006]
   action: grant
   subject:
     namespace: attacker
@@ -29,6 +30,7 @@ fault:
     verbs: [get, list]
 probe:
   type: k8s-secret-read
+  attack: [T1552.007]
   as:
     namespace: attacker
     name: default

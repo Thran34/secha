@@ -201,6 +201,24 @@ func TestAggregateEmptyInput(t *testing.T) {
 	}
 }
 
+func TestStatsOfToleratesAnEmptySample(t *testing.T) {
+	got := StatsOf(nil)
+
+	if got.N != 0 {
+		t.Errorf("N = %d, want 0", got.N)
+	}
+	closeTo(t, "Mean", got.Mean, 0)
+	closeTo(t, "Stddev", got.Stddev, 0)
+}
+
+func TestStatsOfMatchesComputeStats(t *testing.T) {
+	xs := []float64{2, 4, 4, 4, 5, 5, 7, 9}
+
+	if StatsOf(xs) != computeStats(xs) {
+		t.Error("StatsOf must delegate to the same maths as the internal aggregation")
+	}
+}
+
 func TestDurMsConvertsToMilliseconds(t *testing.T) {
 	cases := []struct {
 		in   time.Duration

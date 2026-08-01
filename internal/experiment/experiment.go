@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 
 	"sigs.k8s.io/yaml"
 )
@@ -62,18 +63,24 @@ type Observe struct {
 }
 
 type Spec struct {
-	Type string
-	Raw  json.RawMessage
+	Type   string
+	Attack []string
+	D3fend []string
+	Raw    json.RawMessage
 }
 
 func (s *Spec) UnmarshalJSON(b []byte) error {
 	var head struct {
-		Type string `json:"type"`
+		Type   string   `json:"type"`
+		Attack []string `json:"attack"`
+		D3fend []string `json:"d3fend"`
 	}
 	if err := json.Unmarshal(b, &head); err != nil {
 		return err
 	}
 	s.Type = head.Type
+	s.Attack = head.Attack
+	s.D3fend = head.D3fend
 	s.Raw = append(json.RawMessage(nil), b...)
 	return nil
 }
@@ -117,6 +124,41 @@ func (e *Experiment) Validate() error {
 		if c.Expect.IsEmpty() {
 			return fmt.Errorf("steadyState.checks[%d] (%s): expect must set reachable and/or dataExposed",
 				i, c.Probe.Type)
+		}
+	}
+	for label, s := range e.AnnotatedSpecs() {
+		if err := s.validateReferences(label); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (e *Experiment) AnnotatedSpecs() map[string]Spec {
+	specs := map[string]Spec{
+		"fault": e.Fault,
+		"probe": e.Probe,
+	}
+	for i, d := range e.Observe.Detectors {
+		specs[fmt.Sprintf("observe.detectors[%d]", i)] = d
+	}
+	return specs
+}
+
+var (
+	attackID = regexp.MustCompile(`^T\d{4}(\.\d{3})?$`)
+	d3fendID = regexp.MustCompile(`^D3-[A-Za-z]+$`)
+)
+
+func (s Spec) validateReferences(label string) error {
+	for _, id := range s.Attack {
+		if !attackID.MatchString(id) {
+			return fmt.Errorf("%s: %q is not an ATT&CK technique id (want T1234 or T1234.005)", label, id)
+		}
+	}
+	for _, id := range s.D3fend {
+		if !d3fendID.MatchString(id) {
+			return fmt.Errorf("%s: %q is not a D3FEND technique id (want D3-XXX)", label, id)
 		}
 	}
 	return nil
