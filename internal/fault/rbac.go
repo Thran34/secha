@@ -8,8 +8,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"secha/internal/experiment"
-	"secha/internal/k8s"
+	"github.com/Thran34/secha/internal/experiment"
+	"github.com/Thran34/secha/internal/k8s"
 )
 
 func init() {

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"secha/internal/experiment"
-	"secha/internal/probe"
+	"github.com/Thran34/secha/internal/experiment"
+	"github.com/Thran34/secha/internal/probe"
 )
 
 type Violation struct {

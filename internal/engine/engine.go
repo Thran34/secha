@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"time"
 
-	"secha/internal/detector"
-	"secha/internal/experiment"
-	"secha/internal/fault"
-	"secha/internal/indicator"
-	"secha/internal/probe"
-	"secha/internal/steadystate"
+	"github.com/Thran34/secha/internal/detector"
+	"github.com/Thran34/secha/internal/experiment"
+	"github.com/Thran34/secha/internal/fault"
+	"github.com/Thran34/secha/internal/indicator"
+	"github.com/Thran34/secha/internal/probe"
+	"github.com/Thran34/secha/internal/steadystate"
 )
 
 const defaultWindow = 10 * time.Second

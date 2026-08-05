@@ -3,8 +3,8 @@ package coverage
 import (
 	"sort"
 
-	"secha/internal/experiment"
-	"secha/internal/indicator"
+	"github.com/Thran34/secha/internal/experiment"
+	"github.com/Thran34/secha/internal/indicator"
 )
 
 type Status int

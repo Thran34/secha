@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"secha/internal/experiment"
+	"github.com/Thran34/secha/internal/experiment"
 )
 
 var ErrRejected = errors.New("fault rejected by the cluster")

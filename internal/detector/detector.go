@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"secha/internal/experiment"
+	"github.com/Thran34/secha/internal/experiment"
 )
 
 type Signal struct {

@@ -13,11 +13,15 @@ const (
 	domain           = "enterprise-attack"
 )
 
+const DefaultPlatform = "Containers"
+
 type layer struct {
 	Name            string            `json:"name"`
 	Description     string            `json:"description"`
 	Domain          string            `json:"domain"`
 	Versions        layerVersions     `json:"versions"`
+	Filters         layerFilters      `json:"filters"`
+	Layout          layerLayout       `json:"layout"`
 	Techniques      []layerTechnique  `json:"techniques"`
 	Gradient        layerGradient     `json:"gradient"`
 	LegendItems     []layerLegendItem `json:"legendItems"`
@@ -29,6 +33,17 @@ type layer struct {
 type layerVersions struct {
 	Navigator string `json:"navigator"`
 	Layer     string `json:"layer"`
+}
+
+type layerFilters struct {
+	Platforms []string `json:"platforms,omitempty"`
+}
+
+type layerLayout struct {
+	Layout                string `json:"layout"`
+	ShowID                bool   `json:"showID"`
+	ShowName              bool   `json:"showName"`
+	ExpandedSubtechniques string `json:"expandedSubtechniques"`
 }
 
 type layerTechnique struct {
@@ -56,12 +71,19 @@ var statusColor = map[Status]string{
 	Undetected:   "#e53935",
 }
 
-func WriteNavigatorLayer(w io.Writer, name string, r Result) error {
+func WriteNavigatorLayer(w io.Writer, name string, platforms []string, r Result) error {
 	l := layer{
 		Name:        name,
 		Description: "Resilience measured by secha. Score 100 = attack blocked, 50 = succeeded but detected, 0 = succeeded undetected.",
 		Domain:      domain,
 		Versions:    layerVersions{Navigator: navigatorVersion, Layer: layerVersion},
+		Filters:     layerFilters{Platforms: normalizePlatforms(platforms)},
+		Layout: layerLayout{
+			Layout:                "side",
+			ShowID:                true,
+			ShowName:              true,
+			ExpandedSubtechniques: "annotated",
+		},
 		Gradient: layerGradient{
 			Colors:   []string{statusColor[Undetected], statusColor[DetectedOnly], statusColor[Blocked]},
 			MinValue: 0,
@@ -89,6 +111,19 @@ func WriteNavigatorLayer(w io.Writer, name string, r Result) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(l)
+}
+
+func normalizePlatforms(platforms []string) []string {
+	kept := make([]string, 0, len(platforms))
+	for _, p := range platforms {
+		if p = strings.TrimSpace(p); p != "" {
+			kept = append(kept, p)
+		}
+	}
+	if len(kept) == 0 {
+		return nil
+	}
+	return kept
 }
 
 func comment(t Technique) string {

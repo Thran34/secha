@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"secha/internal/experiment"
-	"secha/internal/k8s"
+	"github.com/Thran34/secha/internal/experiment"
+	"github.com/Thran34/secha/internal/k8s"
 )
 
 func init() {

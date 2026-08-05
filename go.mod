@@ -1,4 +1,4 @@
-module secha
+module github.com/Thran34/secha
 
 go 1.26.1
 

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"secha/internal/experiment"
-	"secha/internal/indicator"
+	"github.com/Thran34/secha/internal/experiment"
+	"github.com/Thran34/secha/internal/indicator"
 )
 
 func exp(name string, fault, probe experiment.Spec) *experiment.Experiment {
@@ -179,7 +179,7 @@ func TestNavigatorLayerIsValidAndScored(t *testing.T) {
 	}}
 
 	var buf strings.Builder
-	if err := WriteNavigatorLayer(&buf, "test layer", result); err != nil {
+	if err := WriteNavigatorLayer(&buf, "test layer", []string{DefaultPlatform}, result); err != nil {
 		t.Fatalf("WriteNavigatorLayer: %v", err)
 	}
 
@@ -231,11 +231,93 @@ func TestNavigatorLayerOmitsD3fendTechniques(t *testing.T) {
 	}
 
 	var buf strings.Builder
-	if err := WriteNavigatorLayer(&buf, "test", result); err != nil {
+	if err := WriteNavigatorLayer(&buf, "test", []string{DefaultPlatform}, result); err != nil {
 		t.Fatalf("WriteNavigatorLayer: %v", err)
 	}
 
 	if strings.Contains(buf.String(), "D3-ITF") {
 		t.Error("a Navigator layer must contain only ATT&CK techniques")
+	}
+}
+
+type navigatorView struct {
+	Filters struct {
+		Platforms []string `json:"platforms"`
+	} `json:"filters"`
+	Layout struct {
+		Layout                string `json:"layout"`
+		ShowID                bool   `json:"showID"`
+		ShowName              bool   `json:"showName"`
+		ExpandedSubtechniques string `json:"expandedSubtechniques"`
+	} `json:"layout"`
+}
+
+func decodeNavigatorView(t *testing.T, platforms []string) navigatorView {
+	t.Helper()
+	result := Result{Attack: []Technique{{ID: "T1098.006", Runs: 1}}}
+
+	var buf strings.Builder
+	if err := WriteNavigatorLayer(&buf, "test", platforms, result); err != nil {
+		t.Fatalf("WriteNavigatorLayer: %v", err)
+	}
+
+	var view navigatorView
+	if err := json.Unmarshal([]byte(buf.String()), &view); err != nil {
+		t.Fatalf("layer is not valid JSON: %v", err)
+	}
+	return view
+}
+
+func TestNavigatorLayerExpandsAnnotatedSubtechniques(t *testing.T) {
+	got := decodeNavigatorView(t, []string{DefaultPlatform}).Layout
+
+	if got.ExpandedSubtechniques != "annotated" {
+		t.Errorf("expandedSubtechniques = %q, want annotated; collapsed subtechniques hide every score secha measured",
+			got.ExpandedSubtechniques)
+	}
+	if got.Layout != "side" {
+		t.Errorf("layout = %q, want side", got.Layout)
+	}
+	if !got.ShowID {
+		t.Error("showID must be true so technique identifiers are readable in a screenshot")
+	}
+}
+
+func TestNavigatorLayerFiltersToTheRequestedPlatforms(t *testing.T) {
+	got := decodeNavigatorView(t, []string{DefaultPlatform}).Filters.Platforms
+
+	if len(got) != 1 || got[0] != "Containers" {
+		t.Errorf("filters.platforms = %v, want [Containers]", got)
+	}
+}
+
+func TestNavigatorLayerOmitsAnEmptyPlatformFilter(t *testing.T) {
+	cases := map[string][]string{
+		"nil":          nil,
+		"empty slice":  {},
+		"empty string": {""},
+		"blank string": {"  "},
+	}
+
+	for name, platforms := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := decodeNavigatorView(t, platforms).Filters.Platforms; len(got) != 0 {
+				t.Errorf("filters.platforms = %v, want no filter; a stray filter silently hides techniques", got)
+			}
+		})
+	}
+}
+
+func TestNavigatorLayerDropsBlankPlatformsButKeepsRealOnes(t *testing.T) {
+	got := decodeNavigatorView(t, []string{"Containers", "", "Linux"}).Filters.Platforms
+
+	want := []string{"Containers", "Linux"}
+	if len(got) != len(want) {
+		t.Fatalf("filters.platforms = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("filters.platforms[%d] = %q, want %q", i, got[i], want[i])
+		}
 	}
 }

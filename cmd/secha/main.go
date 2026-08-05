@@ -2,20 +2,20 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 	"text/tabwriter"
-	"time"
 
 	"github.com/spf13/cobra"
 
-	"secha/internal/coverage"
-	"secha/internal/engine"
-	"secha/internal/experiment"
-	"secha/internal/indicator"
+	"github.com/Thran34/secha/internal/coverage"
+	"github.com/Thran34/secha/internal/engine"
+	"github.com/Thran34/secha/internal/experiment"
+	"github.com/Thran34/secha/internal/indicator"
+	"github.com/Thran34/secha/internal/report"
+	"github.com/Thran34/secha/internal/results"
 )
 
 func main() {
@@ -23,7 +23,7 @@ func main() {
 		Use:   "secha",
 		Short: "Security Chaos Engineering experiment runner",
 	}
-	root.AddCommand(runCmd(), compareCmd(), coverageCmd())
+	root.AddCommand(runCmd(), compareCmd(), coverageCmd(), reportCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -128,6 +128,7 @@ func compareCmd() *cobra.Command {
 func coverageCmd() *cobra.Command {
 	var repeat int
 	var navigator string
+	var platforms []string
 	cmd := &cobra.Command{
 		Use:          "coverage <experiment.yaml>...",
 		Short:        "Run experiments and report measured ATT&CK and D3FEND coverage",
@@ -166,16 +167,76 @@ func coverageCmd() *cobra.Command {
 					return fmt.Errorf("create navigator layer: %w", err)
 				}
 				defer f.Close()
-				if err := coverage.WriteNavigatorLayer(f, "secha measured resilience", result); err != nil {
+				if err := coverage.WriteNavigatorLayer(f, "secha measured resilience", platforms, result); err != nil {
 					return fmt.Errorf("write navigator layer: %w", err)
 				}
 				fmt.Fprintf(os.Stderr, "\nnavigator layer written to %s\n", navigator)
+				if len(platforms) == 0 {
+					fmt.Fprintf(os.Stderr, "matrix not filtered by platform\n")
+				} else {
+					fmt.Fprintf(os.Stderr, "matrix filtered to platform(s): %s\n", strings.Join(platforms, ", "))
+				}
 			}
 			return nil
 		},
 	}
 	cmd.Flags().IntVar(&repeat, "repeat", 1, "number of times to run each experiment")
 	cmd.Flags().StringVar(&navigator, "navigator", "", "write an ATT&CK Navigator layer to this path")
+	cmd.Flags().StringSliceVar(&platforms, "platform", []string{coverage.DefaultPlatform},
+		"restrict the Navigator matrix to these ATT&CK platforms; pass an empty value to disable the filter")
+	return cmd
+}
+
+func reportCmd() *cobra.Command {
+	var out string
+	var svgDir string
+	cmd := &cobra.Command{
+		Use:          "report <results.json>...",
+		Short:        "Render measured results as charts and a summary table",
+		Long:         "Reads one or more files written by secha run --output json and renders them as a self-contained HTML report, standalone SVG figures, or both.",
+		Args:         cobra.MinimumNArgs(1),
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if out == "" && svgDir == "" {
+				return fmt.Errorf("nothing to write: pass --output, --svg-dir, or both")
+			}
+
+			var files []results.File
+			for _, path := range args {
+				f, err := results.Read(path)
+				if err != nil {
+					return err
+				}
+				files = append(files, f)
+			}
+
+			if out != "" {
+				f, err := os.Create(out)
+				if err != nil {
+					return fmt.Errorf("create report: %w", err)
+				}
+				defer f.Close()
+				if err := report.WriteHTML(f, files); err != nil {
+					return fmt.Errorf("write report: %w", err)
+				}
+				fmt.Fprintf(os.Stderr, "report written to %s\n", out)
+			}
+
+			if svgDir != "" {
+				written, err := report.WriteSVGs(svgDir, files, report.Light)
+				if err != nil {
+					return err
+				}
+				for _, path := range written {
+					fmt.Fprintf(os.Stderr, "figure written to %s\n", path)
+				}
+				fmt.Fprintf(os.Stderr, "figures use the light palette, for embedding in a document\n")
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVarP(&out, "output", "o", "", "write a self-contained HTML report to this path")
+	cmd.Flags().StringVar(&svgDir, "svg-dir", "", "write each figure as a standalone SVG into this directory")
 	return cmd
 }
 
@@ -269,85 +330,6 @@ func printComparison(c indicator.Comparison) {
 	w.Flush()
 }
 
-type runJSON struct {
-	FaultApplied      bool     `json:"faultApplied"`
-	RejectionDetail   string   `json:"rejectionDetail,omitempty"`
-	Reachable         bool     `json:"reachable"`
-	DataExposed       bool     `json:"dataExposed"`
-	Detected          bool     `json:"detected"`
-	MTTDMs            *float64 `json:"mttdMs"`
-	RecoveryMs        float64  `json:"recoveryMs"`
-	RecoveryIntegrity *bool    `json:"recoveryIntegrity"`
-}
-
-type statsJSON struct {
-	N      int     `json:"n"`
-	Mean   float64 `json:"mean"`
-	Stddev float64 `json:"stddev"`
-	Min    float64 `json:"min"`
-	Max    float64 `json:"max"`
-}
-
-type summaryJSON struct {
-	Runs                  int        `json:"runs"`
-	FaultAppliedRate      float64    `json:"faultAppliedRate"`
-	ReachableRate         float64    `json:"reachableRate"`
-	DataExposedRate       float64    `json:"dataExposedRate"`
-	DetectedRate          float64    `json:"detectedRate"`
-	MTTDMs                *statsJSON `json:"mttdMs"`
-	RecoveryMs            statsJSON  `json:"recoveryMs"`
-	RecoveryIntegrityRate *float64   `json:"recoveryIntegrityRate"`
-}
-
-type reportJSON struct {
-	Experiment string      `json:"experiment"`
-	Runs       []runJSON   `json:"runs"`
-	Summary    summaryJSON `json:"summary"`
-}
-
 func printJSON(w io.Writer, name string, reports []*indicator.Report) error {
-	out := reportJSON{Experiment: name}
-	for _, r := range reports {
-		rj := runJSON{
-			FaultApplied:      r.FaultApplied,
-			RejectionDetail:   r.RejectionDetail,
-			Reachable:         r.Reachable,
-			DataExposed:       r.DataExposed,
-			Detected:          r.Detected,
-			RecoveryMs:        durMs(r.RecoveryLatency),
-			RecoveryIntegrity: r.RecoveryIntegrity,
-		}
-		if r.MTTD != nil {
-			ms := durMs(*r.MTTD)
-			rj.MTTDMs = &ms
-		}
-		out.Runs = append(out.Runs, rj)
-	}
-
-	s := indicator.Aggregate(reports)
-	out.Summary = summaryJSON{
-		Runs:                  s.Runs,
-		FaultAppliedRate:      s.FaultAppliedRate,
-		ReachableRate:         s.ReachableRate,
-		DataExposedRate:       s.DataExposedRate,
-		DetectedRate:          s.DetectedRate,
-		RecoveryMs:            toStatsJSON(s.Recovery),
-		RecoveryIntegrityRate: s.RecoveryIntegrityRate,
-	}
-	if s.MTTD != nil {
-		sj := toStatsJSON(*s.MTTD)
-		out.Summary.MTTDMs = &sj
-	}
-
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(out)
-}
-
-func toStatsJSON(s indicator.Stats) statsJSON {
-	return statsJSON{N: s.N, Mean: s.Mean, Stddev: s.Stddev, Min: s.Min, Max: s.Max}
-}
-
-func durMs(d time.Duration) float64 {
-	return float64(d.Nanoseconds()) / 1e6
+	return results.Write(w, name, reports)
 }
