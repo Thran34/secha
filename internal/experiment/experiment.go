@@ -7,17 +7,20 @@ import (
 	"regexp"
 
 	"sigs.k8s.io/yaml"
+
+	"github.com/Thran34/secha/internal/safety"
 )
 
 type Experiment struct {
-	APIVersion  string      `json:"apiVersion"`
-	Kind        string      `json:"kind"`
-	Metadata    Metadata    `json:"metadata"`
-	SteadyState SteadyState `json:"steadyState"`
-	Fault       Spec        `json:"fault"`
-	Probe       Spec        `json:"probe"`
-	Observe     Observe     `json:"observe"`
-	Indicators  []string    `json:"indicators"`
+	APIVersion  string        `json:"apiVersion"`
+	Kind        string        `json:"kind"`
+	Metadata    Metadata      `json:"metadata"`
+	Safety      safety.Policy `json:"safety"`
+	SteadyState SteadyState   `json:"steadyState"`
+	Fault       Spec          `json:"fault"`
+	Probe       Spec          `json:"probe"`
+	Observe     Observe       `json:"observe"`
+	Indicators  []string      `json:"indicators"`
 }
 
 type Metadata struct {

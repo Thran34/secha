@@ -19,6 +19,33 @@ type Client struct {
 	config    *rest.Config
 }
 
+type Target struct {
+	Context string
+	Server  string
+}
+
+func (t Target) String() string {
+	if t.Context == "" {
+		return t.Server
+	}
+	return fmt.Sprintf("%s (%s)", t.Context, t.Server)
+}
+
+func CurrentTarget() (Target, error) {
+	loader := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		clientcmd.NewDefaultClientConfigLoadingRules(), &clientcmd.ConfigOverrides{})
+
+	cfg, err := loader.ClientConfig()
+	if err != nil {
+		return Target{}, fmt.Errorf("load kubeconfig: %w", err)
+	}
+	raw, err := loader.RawConfig()
+	if err != nil {
+		return Target{Server: cfg.Host}, nil
+	}
+	return Target{Context: raw.CurrentContext, Server: cfg.Host}, nil
+}
+
 func NewClient() (*Client, error) {
 	rules := clientcmd.NewDefaultClientConfigLoadingRules()
 	cfg, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(

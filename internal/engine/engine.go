@@ -14,9 +14,14 @@ import (
 	"github.com/Thran34/secha/internal/steadystate"
 )
 
-const defaultWindow = 10 * time.Second
+const (
+	defaultWindow  = 10 * time.Second
+	restoreTimeout = 30 * time.Second
+)
 
-func Run(ctx context.Context, exp *experiment.Experiment) (*indicator.Report, error) {
+var ErrControlLeftDisabled = errors.New("THE SECURITY CONTROL IS STILL DISABLED, restore it by hand")
+
+func Run(ctx context.Context, exp *experiment.Experiment) (report *indicator.Report, err error) {
 	f, err := fault.New(exp.Fault)
 	if err != nil {
 		return nil, err
@@ -38,7 +43,7 @@ func Run(ctx context.Context, exp *experiment.Experiment) (*indicator.Report, er
 		}
 	}
 
-	report := &indicator.Report{Experiment: exp.Metadata.Name}
+	report = &indicator.Report{Experiment: exp.Metadata.Name}
 
 	checks := exp.SteadyState.Checks
 	if len(checks) > 0 {
@@ -52,16 +57,27 @@ func Run(ctx context.Context, exp *experiment.Experiment) (*indicator.Report, er
 		}
 	}
 
+	restored := false
+	defer func() {
+		if restored {
+			return
+		}
+		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), restoreTimeout)
+		defer cancel()
+		if rerr := f.Restore(rctx); rerr != nil {
+			err = errors.Join(err, fmt.Errorf("%w: %s: %v", ErrControlLeftDisabled, f.Describe(), rerr))
+		}
+	}()
+
 	report.FaultApplied = true
-	if err := f.Inject(ctx); err != nil {
-		if !errors.Is(err, fault.ErrRejected) {
-			return nil, fmt.Errorf("inject fault: %w", err)
+	if ierr := f.Inject(ctx); ierr != nil {
+		if !errors.Is(ierr, fault.ErrRejected) {
+			return nil, fmt.Errorf("inject fault: %w", ierr)
 		}
 		report.FaultApplied = false
-		report.RejectionDetail = err.Error()
+		report.RejectionDetail = ierr.Error()
 	}
 	faultAt := time.Now()
-	defer f.Restore(ctx)
 
 	for _, d := range detectors {
 		if r, ok := d.(detector.Resettable); ok {
@@ -92,9 +108,10 @@ func Run(ctx context.Context, exp *experiment.Experiment) (*indicator.Report, er
 	}
 
 	restoreStart := time.Now()
-	if err := f.Restore(ctx); err != nil {
-		return nil, fmt.Errorf("restore fault: %w", err)
+	if rerr := f.Restore(ctx); rerr != nil {
+		return nil, fmt.Errorf("restore fault: %w", rerr)
 	}
+	restored = true
 	report.RecoveryLatency = time.Since(restoreStart)
 
 	if len(checks) > 0 {

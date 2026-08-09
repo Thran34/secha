@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -13,19 +16,39 @@ import (
 	"github.com/Thran34/secha/internal/coverage"
 	"github.com/Thran34/secha/internal/engine"
 	"github.com/Thran34/secha/internal/experiment"
+	"github.com/Thran34/secha/internal/fault"
 	"github.com/Thran34/secha/internal/indicator"
+	"github.com/Thran34/secha/internal/k8s"
 	"github.com/Thran34/secha/internal/report"
 	"github.com/Thran34/secha/internal/results"
 )
 
 func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-signals
+		fmt.Fprintln(os.Stderr,
+			"\ninterrupted: restoring the security control, this may take a moment")
+		fmt.Fprintln(os.Stderr,
+			"press Ctrl-C again to abort, which WILL LEAVE THE CONTROL DISABLED")
+		signal.Stop(signals)
+		cancel()
+	}()
+
 	root := &cobra.Command{
 		Use:   "secha",
 		Short: "Security Chaos Engineering experiment runner",
 	}
 	root.AddCommand(runCmd(), compareCmd(), coverageCmd(), reportCmd())
 
-	if err := root.Execute(); err != nil {
+	if err := root.ExecuteContext(ctx); err != nil {
+		if errors.Is(err, engine.ErrControlLeftDisabled) {
+			fmt.Fprintf(os.Stderr, "\n!!! %v\n", err)
+		}
 		os.Exit(1)
 	}
 }
@@ -33,6 +56,7 @@ func main() {
 func runCmd() *cobra.Command {
 	var repeat int
 	var output string
+	var dryRun bool
 	cmd := &cobra.Command{
 		Use:          "run <experiment.yaml>",
 		Short:        "Run a fault + probe + observation experiment",
@@ -57,14 +81,24 @@ func runCmd() *cobra.Command {
 				progress = os.Stderr
 			}
 
+			target, err := checkTarget(progress, exp)
+			if err != nil {
+				return err
+			}
+
 			printPlan(progress, exp)
 			if repeat > 1 {
 				fmt.Fprintf(progress, "  repeat:  %d runs\n", repeat)
 			}
 
+			if dryRun {
+				printDryRun(progress, exp, target)
+				return nil
+			}
+
 			var reports []*indicator.Report
 			for i := 0; i < repeat; i++ {
-				rep, err := engine.Run(context.Background(), exp)
+				rep, err := engine.Run(cmd.Context(), exp)
 				if err != nil {
 					return fmt.Errorf("run %d/%d: %w", i+1, repeat, err)
 				}
@@ -88,7 +122,38 @@ func runCmd() *cobra.Command {
 	}
 	cmd.Flags().IntVar(&repeat, "repeat", 1, "number of times to run the experiment")
 	cmd.Flags().StringVar(&output, "output", "text", "output format: text or json")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be broken, without touching the cluster")
 	return cmd
+}
+
+func checkTarget(w io.Writer, exp *experiment.Experiment) (k8s.Target, error) {
+	target, err := k8s.CurrentTarget()
+	if err != nil {
+		return target, err
+	}
+	fmt.Fprintf(w, "cluster: %s\n", target)
+	if err := exp.Safety.Check(target); err != nil {
+		return target, err
+	}
+	if !exp.Safety.Pinned() {
+		fmt.Fprintf(w, "  note:  no safety.contexts in this experiment, any cluster is accepted\n")
+	}
+	return target, nil
+}
+
+func printDryRun(w io.Writer, exp *experiment.Experiment, target k8s.Target) {
+	f, err := fault.New(exp.Fault)
+	if err != nil {
+		fmt.Fprintf(w, "\ndry run: fault could not be prepared: %v\n", err)
+		return
+	}
+	fmt.Fprintf(w, "\ndry run, nothing was changed on %s\n\n", target)
+	fmt.Fprintf(w, "  would break:  %s\n", f.Describe())
+	fmt.Fprintf(w, "  would probe:  %s\n", exp.Probe.Type)
+	for _, d := range exp.Observe.Detectors {
+		fmt.Fprintf(w, "  would watch:  %s\n", d.Type)
+	}
+	fmt.Fprintf(w, "\nrun again without --dry-run to measure it\n")
 }
 
 func compareCmd() *cobra.Command {
@@ -107,14 +172,20 @@ func compareCmd() *cobra.Command {
 				return err
 			}
 
+			for _, exp := range []*experiment.Experiment{baseExp, treatExp} {
+				if _, err := checkTarget(os.Stdout, exp); err != nil {
+					return err
+				}
+			}
+
 			fmt.Printf("baseline:  %s\n", baseExp.Metadata.Name)
-			baseRep, err := engine.Run(context.Background(), baseExp)
+			baseRep, err := engine.Run(cmd.Context(), baseExp)
 			if err != nil {
 				return fmt.Errorf("baseline %q: %w", baseExp.Metadata.Name, err)
 			}
 
 			fmt.Printf("treatment: %s\n", treatExp.Metadata.Name)
-			treatRep, err := engine.Run(context.Background(), treatExp)
+			treatRep, err := engine.Run(cmd.Context(), treatExp)
 			if err != nil {
 				return fmt.Errorf("treatment %q: %w", treatExp.Metadata.Name, err)
 			}
@@ -145,11 +216,14 @@ func coverageCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				if _, err := checkTarget(os.Stderr, exp); err != nil {
+					return err
+				}
 				fmt.Fprintf(os.Stderr, "running %s (%d run(s))\n", exp.Metadata.Name, repeat)
 
 				var reports []*indicator.Report
 				for i := 0; i < repeat; i++ {
-					rep, err := engine.Run(context.Background(), exp)
+					rep, err := engine.Run(cmd.Context(), exp)
 					if err != nil {
 						return fmt.Errorf("%s run %d/%d: %w", exp.Metadata.Name, i+1, repeat, err)
 					}

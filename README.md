@@ -65,12 +65,47 @@ cd secha
 make build       # builds ./bin/secha
 ```
 
-`secha` reads `KUBECONFIG` and uses its **current context**. Check it before you measure anything —
-a kubeconfig with the wrong current context will happily run the whole experiment against the wrong
-cluster and report perfectly valid numbers:
+## Safety
+
+`secha` deletes and modifies security controls on a live cluster. Three things keep that from becoming
+an incident.
+
+**It prints the cluster before it does anything.** Every run starts with the kubeconfig context and API
+server it is about to act on. A kubeconfig whose current context drifted to the wrong cluster would
+otherwise run the whole experiment somewhere unintended and report perfectly valid numbers.
+
+**It restores the control even when interrupted.** Ctrl-C, `SIGTERM`, a failing probe, a fault that
+half-applied before erroring — the control goes back. The restore runs on its own context, so a
+cancellation cannot cancel the cleanup too. A second Ctrl-C aborts immediately and *will* leave the
+control disabled; `secha` says so before you press it. If a restore ever does fail, the run ends with a
+loud, unmissable error naming exactly what is still broken.
+
+`SIGKILL` cannot be caught. Nothing recovers from `kill -9` mid-experiment.
+
+**It can refuse to run on the wrong cluster.** Pin the experiment to the contexts it belongs to:
+
+```yaml
+safety:
+  contexts: [secha-lab, staging]
+```
+
+Anything else is refused before the fault is injected. Without this block any cluster is accepted, and
+`secha` says so on every run.
+
+Use `--dry-run` to see exactly which control would be broken, without touching anything:
 
 ```sh
-kubectl config current-context
+secha run examples/exp01-networkpolicy.yaml --dry-run
+```
+
+```
+cluster: secha-lab (https://10.0.0.7:6443)
+
+dry run, nothing was changed on secha-lab (https://10.0.0.7:6443)
+
+  would break:  delete networkpolicy target/redis-allow-web-only
+  would probe:  redis-exfil
+  would watch:  redis-acl-log
 ```
 
 ## Quickstart
@@ -317,7 +352,7 @@ is recorded as a measurement, not an error.
 
 Working: the full canonical loop, two faults, two detection paradigms, repeated measurement with
 aggregation, delta comparison, measured MITRE coverage with Navigator export, and figures rendered
-straight from the measurements. 151 unit tests, none of which require a cluster.
+straight from the measurements. 161 unit tests, none of which require a cluster.
 
 Known limitations, stated rather than hidden:
 
