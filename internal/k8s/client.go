@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -105,6 +107,25 @@ func (c *Client) Exec(ctx context.Context, namespace, pod, container string, com
 		Stderr: &stderr,
 	})
 	return stdout.String(), stderr.String(), err
+}
+
+func (c *Client) PodLogsSince(ctx context.Context, namespace, pod, container string, since time.Time) (string, error) {
+	opts := &corev1.PodLogOptions{Container: container}
+	if !since.IsZero() {
+		t := metav1.NewTime(since)
+		opts.SinceTime = &t
+	}
+	stream, err := c.Clientset.CoreV1().Pods(namespace).GetLogs(pod, opts).Stream(ctx)
+	if err != nil {
+		return "", fmt.Errorf("get logs %s/%s: %w", namespace, pod, err)
+	}
+	defer stream.Close()
+
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, stream); err != nil {
+		return "", fmt.Errorf("read logs %s/%s: %w", namespace, pod, err)
+	}
+	return buf.String(), nil
 }
 
 func (c *Client) FirstRunningPod(ctx context.Context, namespace, selector string) (string, error) {

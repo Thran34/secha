@@ -1,0 +1,48 @@
+apiVersion: secha/v1
+kind: Experiment
+metadata:
+  name: rbac-secret-read-falco
+  hypothesis: >
+    Same excess grant and the same attack as the unguarded control, observed by
+    Falco reading the Kubernetes audit log instead of by a posture check. Falco is
+    a detector the target already runs, so this measures the real detection path.
+steadyState:
+  checks:
+    - type: k8s-secret-read
+      as:
+        namespace: attacker
+        name: default
+      target:
+        namespace: target-unguarded
+        secret: redis-auth
+      expect:
+        dataExposed: false
+fault:
+  type: k8s-rbac
+  attack: [T1098.006]
+  action: grant
+  subject:
+    namespace: attacker
+    name: default
+  grant:
+    namespace: target-unguarded
+    resources: [secrets]
+    verbs: [get, list]
+probe:
+  type: k8s-secret-read
+  attack: [T1552.007]
+  as:
+    namespace: attacker
+    name: default
+  target:
+    namespace: target-unguarded
+    secret: redis-auth
+observe:
+  window: 10s
+  detectors:
+    - type: falco-alert
+      rules: ["K8s Secret Get Successfully"]
+      match:
+        ka.target.namespace: target-unguarded
+        ka.target.name: redis-auth
+indicators: [exposure, detection_coverage, mttd, recovery_latency]
