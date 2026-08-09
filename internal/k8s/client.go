@@ -7,6 +7,7 @@ import (
 	"io"
 	"time"
 
+	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -62,12 +63,21 @@ func NewClient() (*Client, error) {
 	return &Client{Clientset: cs, config: cfg}, nil
 }
 
-func (c *Client) ClientsetAs(user string) (*kubernetes.Clientset, error) {
-	cfg := rest.CopyConfig(c.config)
-	cfg.Impersonate = rest.ImpersonationConfig{UserName: user}
+func (c *Client) ClientsetForServiceAccount(ctx context.Context, namespace, name string) (*kubernetes.Clientset, error) {
+	expiration := int64(600)
+	req := &authenticationv1.TokenRequest{
+		Spec: authenticationv1.TokenRequestSpec{ExpirationSeconds: &expiration},
+	}
+	token, err := c.Clientset.CoreV1().ServiceAccounts(namespace).CreateToken(ctx, name, req, metav1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("request token for serviceaccount %s/%s: %w", namespace, name, err)
+	}
+
+	cfg := rest.AnonymousClientConfig(c.config)
+	cfg.BearerToken = token.Status.Token
 	cs, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("build impersonating clientset for %q: %w", user, err)
+		return nil, fmt.Errorf("build clientset for serviceaccount %s/%s: %w", namespace, name, err)
 	}
 	return cs, nil
 }

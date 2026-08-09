@@ -29,6 +29,8 @@ type secretReadConfig struct {
 
 type secretReadProbe struct {
 	client   *k8s.Client
+	saNS     string
+	saName   string
 	user     string
 	targetNS string
 	secret   string
@@ -51,6 +53,8 @@ func newSecretReadProbe(spec experiment.Spec) (Probe, error) {
 	}
 	return &secretReadProbe{
 		client:   client,
+		saNS:     cfg.As.Namespace,
+		saName:   cfg.As.Name,
 		user:     fmt.Sprintf("system:serviceaccount:%s:%s", cfg.As.Namespace, cfg.As.Name),
 		targetNS: cfg.Target.Namespace,
 		secret:   cfg.Target.Secret,
@@ -58,7 +62,7 @@ func newSecretReadProbe(spec experiment.Spec) (Probe, error) {
 }
 
 func (p *secretReadProbe) Run(ctx context.Context) (Result, error) {
-	cs, err := p.client.ClientsetAs(p.user)
+	cs, err := p.client.ClientsetForServiceAccount(ctx, p.saNS, p.saName)
 	if err != nil {
 		return Result{}, err
 	}

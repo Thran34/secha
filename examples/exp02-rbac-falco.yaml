@@ -45,4 +45,5 @@ observe:
       match:
         ka.target.namespace: target-unguarded
         ka.target.name: redis-auth
+        ka.user.name: system:serviceaccount:attacker:default
 indicators: [exposure, detection_coverage, mttd, recovery_latency]
