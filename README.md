@@ -3,7 +3,12 @@
 </p>
 
 <p align="center">
-  <strong>Break your security controls on purpose. Measure what the rest of the stack does about it.</strong>
+  <strong>Measure whether your detection survives the removal of the control that masks it today.</strong>
+</p>
+
+<p align="center">
+  <em>The control that stops the attack may be the only reason you'd catch it.<br>
+  Measure what's left when it's gone.</em>
 </p>
 
 ---
