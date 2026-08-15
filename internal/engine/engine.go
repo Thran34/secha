@@ -23,6 +23,8 @@ const (
 
 var ErrControlLeftDisabled = errors.New("THE SECURITY CONTROL IS STILL DISABLED, restore it by hand")
 
+var ErrSteadyStateViolated = errors.New("steady state not satisfied")
+
 func Run(ctx context.Context, exp *experiment.Experiment) (report *indicator.Report, err error) {
 	f, err := fault.New(exp.Fault)
 	if err != nil {
@@ -54,8 +56,8 @@ func Run(ctx context.Context, exp *experiment.Experiment) (report *indicator.Rep
 			return nil, fmt.Errorf("verify steady state: %w", err)
 		}
 		if len(violations) > 0 {
-			return nil, fmt.Errorf("steady state not satisfied, aborting before fault injection: %s",
-				steadystate.Format(violations))
+			return nil, fmt.Errorf("%w, aborting before fault injection: %s",
+				ErrSteadyStateViolated, steadystate.Format(violations))
 		}
 	}
 

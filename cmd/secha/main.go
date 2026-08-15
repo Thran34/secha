@@ -332,7 +332,6 @@ func demoCmd() *cobra.Command {
 			}
 			fmt.Printf("cluster: %s\n\n", target)
 			fmt.Printf("secha demo creates the %s namespace, measures, and deletes it again.\n", demo.Namespace)
-			fmt.Printf("nothing outside that namespace is touched.\n\n")
 
 			runner, err := demo.New(os.Stdout)
 			if err != nil {
@@ -355,6 +354,9 @@ func demoCmd() *cobra.Command {
 			fmt.Printf("\nbaseline:  %s (redis without AUTH)\n", baseline.Metadata.Name)
 			baseRep, err := engine.Run(ctx, baseline)
 			if err != nil {
+				if errors.Is(err, engine.ErrSteadyStateViolated) {
+					return errors.Join(err, errNetworkPolicyNotEnforced)
+				}
 				return fmt.Errorf("baseline %q: %w", baseline.Metadata.Name, err)
 			}
 
@@ -370,6 +372,14 @@ func demoCmd() *cobra.Command {
 		},
 	}
 }
+
+var errNetworkPolicyNotEnforced = errors.New(
+	"the attacker reached the target before any fault was injected, which means this cluster " +
+		"accepts NetworkPolicy objects but does not enforce them.\n" +
+		"The demo needs a CNI that enforces NetworkPolicy — Calico, Cilium, kube-router or Weave.\n" +
+		"  minikube:  minikube start --cni=calico\n" +
+		"  kind:      install Calico, or use a cluster that ships policy enforcement\n" +
+		"  managed:   most cloud providers enforce it by default")
 
 func teardown(runner *demo.Runner, ctx context.Context) {
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Minute)

@@ -124,6 +124,11 @@ dry run, nothing was changed on secha-lab (https://10.0.0.7:6443)
 `secha demo` needs nothing but a cluster you are allowed to break. It creates its own namespace,
 measures one resilience delta, and deletes everything it created before it returns.
 
+One requirement: the cluster must **enforce** NetworkPolicy, not merely accept the objects. Calico,
+Cilium, kube-router and Weave all do. Minikube's default CNI does not — start it with
+`minikube start --cni=calico`. If enforcement is missing, `secha` stops before injecting anything and
+says so, rather than reporting a leak it did not cause.
+
 ```sh
 secha demo
 ```
@@ -132,7 +137,6 @@ secha demo
 cluster: <your-context> (https://<your-api-server>)
 
 secha demo creates the secha-demo namespace, measures, and deletes it again.
-nothing outside that namespace is touched.
 
 setting up the demo target
   waiting for the demo workloads to become ready
