@@ -11,6 +11,12 @@
   Measure what's left when it's gone.</em>
 </p>
 
+<p align="center">
+  <a href="https://github.com/Thran34/secha/actions/workflows/ci.yml"><img src="https://github.com/Thran34/secha/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="license Apache-2.0"></a>
+  <a href="https://secha.dev"><img src="https://img.shields.io/badge/docs-secha.dev-informational" alt="secha.dev"></a>
+</p>
+
 ---
 
 `secha` is a command-line tool for Security Chaos Engineering on Kubernetes. It disables a security
