@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-open
+  namespace: secha-demo
+  labels:
+    app: redis-open
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-open
+  template:
+    metadata:
+      labels:
+        app: redis-open
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command: ["sh", "-c"]
+          args:
+            - |
+              redis-server &
+              until redis-cli ping >/dev/null 2>&1; do sleep 0.2; done
+              redis-cli set secret:flag TOP-SECRET-DATA >/dev/null
+              wait
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-open
+  namespace: secha-demo
+spec:
+  selector:
+    app: redis-open
+  ports:
+    - port: 6379
+      targetPort: 6379

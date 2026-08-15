@@ -15,8 +15,10 @@ import (
 )
 
 const (
-	defaultWindow  = 10 * time.Second
-	restoreTimeout = 30 * time.Second
+	defaultWindow    = 10 * time.Second
+	restoreTimeout   = 30 * time.Second
+	recoveryAttempts = 3
+	recoveryBackoff  = 750 * time.Millisecond
 )
 
 var ErrControlLeftDisabled = errors.New("THE SECURITY CONTROL IS STILL DISABLED, restore it by hand")
@@ -115,7 +117,7 @@ func Run(ctx context.Context, exp *experiment.Experiment) (report *indicator.Rep
 	report.RecoveryLatency = time.Since(restoreStart)
 
 	if len(checks) > 0 {
-		violations, err := steadystate.Verify(ctx, checks)
+		violations, err := verifyRecovery(ctx, checks)
 		if err != nil {
 			return nil, fmt.Errorf("verify recovery integrity: %w", err)
 		}
@@ -125,4 +127,26 @@ func Run(ctx context.Context, exp *experiment.Experiment) (report *indicator.Rep
 	}
 
 	return report, nil
+}
+
+func verifyRecovery(ctx context.Context, checks []experiment.Check) ([]steadystate.Violation, error) {
+	var violations []steadystate.Violation
+	for attempt := 0; attempt < recoveryAttempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(recoveryBackoff):
+			}
+		}
+		var err error
+		violations, err = steadystate.Verify(ctx, checks)
+		if err != nil {
+			return nil, err
+		}
+		if len(violations) == 0 {
+			return nil, nil
+		}
+	}
+	return violations, nil
 }

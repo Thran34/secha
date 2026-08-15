@@ -97,6 +97,10 @@ func Load(path string) (*Experiment, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read experiment: %w", err)
 	}
+	return Parse(b)
+}
+
+func Parse(b []byte) (*Experiment, error) {
 	var exp Experiment
 	if err := yaml.Unmarshal(b, &exp); err != nil {
 		return nil, fmt.Errorf("parse experiment: %w", err)

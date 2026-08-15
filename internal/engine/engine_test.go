@@ -143,6 +143,70 @@ func TestRunRestoresWhenTheFaultFailsHalfwayThrough(t *testing.T) {
 	}
 }
 
+type countingProbe struct {
+	calls   int
+	results []probe.Result
+}
+
+func (p *countingProbe) Run(context.Context) (probe.Result, error) {
+	p.calls++
+	if p.calls <= len(p.results) {
+		return p.results[p.calls-1], nil
+	}
+	return p.results[len(p.results)-1], nil
+}
+
+func (p *countingProbe) Describe() string { return "counting probe" }
+
+func TestRecoveryIntegrityRetriesWhileTheControlPropagates(t *testing.T) {
+	reachable := true
+	checks := []experiment.Check{{
+		Probe:  experiment.Spec{Type: "test-probe"},
+		Expect: experiment.Expect{Reachable: &reachable},
+	}}
+
+	counter := &countingProbe{results: []probe.Result{
+		{Reachable: false},
+		{Reachable: true},
+	}}
+	probe.Register("test-probe", func(experiment.Spec) (probe.Probe, error) { return counter, nil })
+
+	violations, err := verifyRecovery(context.Background(), checks)
+	if err != nil {
+		t.Fatalf("verifyRecovery: %v", err)
+	}
+
+	if len(violations) != 0 {
+		t.Errorf("violations = %v, want none; a control that needs a moment to take effect is not a failure", violations)
+	}
+	if counter.calls < 2 {
+		t.Errorf("probe ran %d time(s), want a retry before declaring recovery broken", counter.calls)
+	}
+}
+
+func TestRecoveryIntegrityGivesUpOnAControlThatNeverComesBack(t *testing.T) {
+	reachable := true
+	checks := []experiment.Check{{
+		Probe:  experiment.Spec{Type: "test-probe"},
+		Expect: experiment.Expect{Reachable: &reachable},
+	}}
+
+	counter := &countingProbe{results: []probe.Result{{Reachable: false}}}
+	probe.Register("test-probe", func(experiment.Spec) (probe.Probe, error) { return counter, nil })
+
+	violations, err := verifyRecovery(context.Background(), checks)
+	if err != nil {
+		t.Fatalf("verifyRecovery: %v", err)
+	}
+
+	if len(violations) == 0 {
+		t.Error("retrying must not hide a control that genuinely failed to come back")
+	}
+	if counter.calls != recoveryAttempts {
+		t.Errorf("probe ran %d time(s), want %d attempts", counter.calls, recoveryAttempts)
+	}
+}
+
 func TestRunKeepsMeasuringWhenTheClusterRejectsTheFault(t *testing.T) {
 	f := &recordingFault{injectErr: fault.Rejected("denied by admission policy")}
 	exp := register(t, f, okProbe())

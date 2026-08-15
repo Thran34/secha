@@ -10,10 +10,12 @@ import (
 	"strings"
 	"syscall"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/Thran34/secha/internal/coverage"
+	"github.com/Thran34/secha/internal/demo"
 	"github.com/Thran34/secha/internal/engine"
 	"github.com/Thran34/secha/internal/experiment"
 	"github.com/Thran34/secha/internal/fault"
@@ -43,7 +45,7 @@ func main() {
 		Use:   "secha",
 		Short: "Security Chaos Engineering experiment runner",
 	}
-	root.AddCommand(runCmd(), compareCmd(), coverageCmd(), reportCmd())
+	root.AddCommand(runCmd(), compareCmd(), coverageCmd(), reportCmd(), demoCmd())
 
 	if err := root.ExecuteContext(ctx); err != nil {
 		if errors.Is(err, engine.ErrControlLeftDisabled) {
@@ -312,6 +314,85 @@ func reportCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&out, "output", "o", "", "write a self-contained HTML report to this path")
 	cmd.Flags().StringVar(&svgDir, "svg-dir", "", "write each figure as a standalone SVG into this directory")
 	return cmd
+}
+
+func demoCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "demo",
+		Short: "Stand up a throwaway target, measure one resilience delta, then remove it",
+		Long: "Creates a self-contained " + demo.Namespace + " namespace with two redis instances, one " +
+			"protected by AUTH and one not, runs the same fault against both, and reports what the AUTH " +
+			"layer is worth. Everything it creates is deleted before the command returns.",
+		Args:         cobra.NoArgs,
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			target, err := k8s.CurrentTarget()
+			if err != nil {
+				return err
+			}
+			fmt.Printf("cluster: %s\n\n", target)
+			fmt.Printf("secha demo creates the %s namespace, measures, and deletes it again.\n", demo.Namespace)
+			fmt.Printf("nothing outside that namespace is touched.\n\n")
+
+			runner, err := demo.New(os.Stdout)
+			if err != nil {
+				return err
+			}
+
+			ctx := cmd.Context()
+			fmt.Printf("setting up the demo target\n")
+			if err := runner.Setup(ctx); err != nil {
+				teardown(runner, ctx)
+				return fmt.Errorf("set up demo: %w", err)
+			}
+			defer teardown(runner, ctx)
+
+			baseline, treatment, err := demo.Experiments()
+			if err != nil {
+				return err
+			}
+
+			fmt.Printf("\nbaseline:  %s (redis without AUTH)\n", baseline.Metadata.Name)
+			baseRep, err := engine.Run(ctx, baseline)
+			if err != nil {
+				return fmt.Errorf("baseline %q: %w", baseline.Metadata.Name, err)
+			}
+
+			fmt.Printf("treatment: %s (redis with AUTH)\n", treatment.Metadata.Name)
+			treatRep, err := engine.Run(ctx, treatment)
+			if err != nil {
+				return fmt.Errorf("treatment %q: %w", treatment.Metadata.Name, err)
+			}
+
+			printComparison(indicator.Compare(baseRep, treatRep))
+			printDemoConclusion(os.Stdout, baseRep, treatRep)
+			return nil
+		},
+	}
+}
+
+func teardown(runner *demo.Runner, ctx context.Context) {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Minute)
+	defer cancel()
+	fmt.Printf("\nremoving the %s namespace\n", demo.Namespace)
+	if err := runner.Teardown(cleanupCtx); err != nil {
+		fmt.Fprintf(os.Stderr, "\n!!! could not remove the demo namespace: %v\n", err)
+		fmt.Fprintf(os.Stderr, "!!! remove it by hand: kubectl delete namespace %s\n", demo.Namespace)
+	}
+}
+
+func printDemoConclusion(w io.Writer, baseline, treatment *indicator.Report) {
+	fmt.Fprintf(w, "\nwhat the AUTH layer was worth:\n\n")
+	fmt.Fprintf(w, "  without AUTH  the secret was read: %t, anything detected it: %t\n",
+		baseline.DataExposed, baseline.Detected)
+	fmt.Fprintf(w, "  with AUTH     the secret was read: %t, anything detected it: %t\n",
+		treatment.DataExposed, treatment.Detected)
+
+	if baseline.DataExposed && !baseline.Detected && !treatment.DataExposed && treatment.Detected {
+		fmt.Fprintf(w, "\n  Removing AUTH did not only cost the protection. It cost the detection too:\n")
+		fmt.Fprintf(w, "  the signal was the failed authentication, and with no AUTH there is none to log.\n")
+		fmt.Fprintf(w, "  A dashboard with no alerts would have looked exactly the same.\n")
+	}
 }
 
 func printCoverage(w io.Writer, r coverage.Result) {

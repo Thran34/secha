@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: secha-demo
+  labels:
+    app.kubernetes.io/managed-by: secha
+    secha.dev/demo: "true"

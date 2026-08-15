@@ -1,0 +1,46 @@
+apiVersion: secha/v1
+kind: Experiment
+metadata:
+  name: demo-redis-with-auth
+  hypothesis: >
+    Deleting the NetworkPolicy in front of redis opens the network path, but
+    redis AUTH still refuses the read. The rejected attempt lands in the redis
+    ACL log, so the second layer both blocks the attack and produces the signal
+    that reveals it.
+steadyState:
+  checks:
+    - type: redis-exfil
+      from:
+        namespace: secha-demo
+        pod: attacker
+      target: redis.secha-demo.svc.cluster.local:6379
+      expect:
+        reachable: false
+    - type: redis-key-present
+      target:
+        namespace: secha-demo
+        selector: app=redis
+      key: secret:flag
+      expect:
+        dataExposed: true
+fault:
+  type: k8s-networkpolicy
+  d3fend: [D3-ITF]
+  action: delete
+  target:
+    namespace: secha-demo
+    name: redis-allow-web-only
+probe:
+  type: redis-exfil
+  from:
+    namespace: secha-demo
+    pod: attacker
+  target: redis.secha-demo.svc.cluster.local:6379
+observe:
+  window: 10s
+  detectors:
+    - type: redis-acl-log
+      target:
+        namespace: secha-demo
+        selector: app=redis
+indicators: [exposure, defense_in_depth_depth, mttd, recovery_latency]

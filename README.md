@@ -113,6 +113,57 @@ dry run, nothing was changed on secha-lab (https://10.0.0.7:6443)
   would watch:  redis-acl-log
 ```
 
+## Try it in two minutes
+
+`secha demo` needs nothing but a cluster you are allowed to break. It creates its own namespace,
+measures one resilience delta, and deletes everything it created before it returns.
+
+```sh
+secha demo
+```
+
+```
+cluster: <your-context> (https://<your-api-server>)
+
+secha demo creates the secha-demo namespace, measures, and deletes it again.
+nothing outside that namespace is touched.
+
+setting up the demo target
+  waiting for the demo workloads to become ready
+
+baseline:  demo-redis-without-auth (redis without AUTH)
+treatment: demo-redis-with-auth (redis with AUTH)
+
+resilience delta: demo-redis-without-auth → demo-redis-with-auth
+
+  indicator           baseline     treatment     verdict
+  fault applied       true         true          same
+  reachable           true         true          —
+  data exposed        true         false         improved
+  detected            false        true          improved
+  mttd                ∞ (never)    676.575041ms  improved
+  recovery latency    17.552583ms  18.087459ms   —
+  recovery integrity  true         true          same
+
+what the AUTH layer was worth:
+
+  without AUTH  the secret was read: true, anything detected it: false
+  with AUTH     the secret was read: false, anything detected it: true
+
+  Removing AUTH did not only cost the protection. It cost the detection too:
+  the signal was the failed authentication, and with no AUTH there is none to log.
+  A dashboard with no alerts would have looked exactly the same.
+
+removing the secha-demo namespace
+```
+
+Two redis instances, identical except that one requires a password. The same NetworkPolicy is deleted
+in front of both. The one with AUTH survives the attack **and** produces the log line that reveals it.
+The one without AUTH loses the data and the visibility at the same time.
+
+That second row is the point of the whole tool. A team that removed AUTH to simplify something would
+have lost its detection without a single alert firing to say so.
+
 ## Quickstart
 
 The `examples/` directory contains four ready experiments. `lab/` in the parent repository has the
@@ -183,6 +234,11 @@ resilience delta: rbac-secret-read-unguarded → rbac-secret-read
 `detected` and `mttd` read `n/a` rather than `regressed`. Detection cannot be compared when the fault
 never landed in the treatment — there was nothing to detect. `data exposed` stays comparable, because
 not leaking is a real outcome regardless of which layer caused it.
+
+### `secha demo`
+
+Stands up a throwaway target, measures the AUTH delta shown above, and removes it again. No
+configuration, no manifests to apply, nothing left behind. This is the fastest way to see the loop run.
 
 ### `secha coverage <experiment.yaml>...`
 
@@ -357,7 +413,7 @@ is recorded as a measurement, not an error.
 
 Working: the full canonical loop, two faults, two detection paradigms, repeated measurement with
 aggregation, delta comparison, measured MITRE coverage with Navigator export, and figures rendered
-straight from the measurements. 161 unit tests, none of which require a cluster.
+straight from the measurements, and a self-contained demo. 176 unit tests, none of which require a cluster.
 
 Known limitations, stated rather than hidden:
 

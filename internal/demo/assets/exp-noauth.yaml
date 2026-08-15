@@ -1,0 +1,45 @@
+apiVersion: secha/v1
+kind: Experiment
+metadata:
+  name: demo-redis-without-auth
+  hypothesis: >
+    The same fault against a redis with no AUTH. The secret is read outright,
+    and because there is no failed authentication to log, nothing detects it.
+    Removing the AUTH layer costs the protection and the visibility at once.
+steadyState:
+  checks:
+    - type: redis-exfil
+      from:
+        namespace: secha-demo
+        pod: attacker
+      target: redis-open.secha-demo.svc.cluster.local:6379
+      expect:
+        reachable: false
+    - type: redis-key-present
+      target:
+        namespace: secha-demo
+        selector: app=redis-open
+      key: secret:flag
+      expect:
+        dataExposed: true
+fault:
+  type: k8s-networkpolicy
+  d3fend: [D3-ITF]
+  action: delete
+  target:
+    namespace: secha-demo
+    name: redis-open-allow-web-only
+probe:
+  type: redis-exfil
+  from:
+    namespace: secha-demo
+    pod: attacker
+  target: redis-open.secha-demo.svc.cluster.local:6379
+observe:
+  window: 10s
+  detectors:
+    - type: redis-acl-log
+      target:
+        namespace: secha-demo
+        selector: app=redis-open
+indicators: [exposure, defense_in_depth_depth, mttd, recovery_latency]

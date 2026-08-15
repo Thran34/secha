@@ -1,0 +1,62 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: redis-auth
+  namespace: secha-demo
+type: Opaque
+stringData:
+  password: "secha-demo-redis-pass"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: secha-demo
+  labels:
+    app: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command: ["sh", "-c"]
+          args:
+            - |
+              redis-server --requirepass "$REDIS_PASSWORD" &
+              until redis-cli -a "$REDIS_PASSWORD" --no-auth-warning ping >/dev/null 2>&1; do sleep 0.2; done
+              redis-cli -a "$REDIS_PASSWORD" --no-auth-warning set secret:flag TOP-SECRET-DATA >/dev/null
+              wait
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-auth
+                  key: password
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: secha-demo
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
