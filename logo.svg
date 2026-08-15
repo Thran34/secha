@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 140" width="120" height="140" role="img" aria-label="secha">
+  <defs>
+    <clipPath id="shield">
+      <path d="M60 5 112 25v47c0 30-21 53-52 63C29 125 8 102 8 72V25Z"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#shield)">
+    <rect width="120" height="140" fill="#1d2d81"/>
+    <path d="M60 0h60v140H60Z" fill="#284d8d"/>
+  </g>
+
+  <g clip-path="url(#shield)" fill="none" stroke-linecap="butt" stroke-linejoin="miter">
+    <path d="M90 12 68 52l14 12-32 64" stroke="#12161c" stroke-width="7"/>
+    <path d="M87 10 65 50l14 12-32 64" stroke="#99e583" stroke-width="2.6"/>
+    <path d="M93 14 71 54l14 12-32 64" stroke="#d5a058" stroke-width="2.6"/>
+  </g>
+
+  <path d="M60 5 112 25v47c0 30-21 53-52 63C29 125 8 102 8 72V25Z"
+        fill="none" stroke="#0f1420" stroke-width="2.5" stroke-linejoin="round"/>
+</svg>

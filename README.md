@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="image.png" alt="secha — security chaos engineering" width="220">
+  <img src="logo.png" alt="secha" width="112">
 </p>
 
 <p align="center">
