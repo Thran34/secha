@@ -23,6 +23,7 @@ import (
 	"github.com/Thran34/secha/internal/k8s"
 	"github.com/Thran34/secha/internal/report"
 	"github.com/Thran34/secha/internal/results"
+	"github.com/Thran34/secha/internal/scaffold"
 )
 
 func main() {
@@ -45,7 +46,7 @@ func main() {
 		Use:   "secha",
 		Short: "Security Chaos Engineering experiment runner",
 	}
-	root.AddCommand(runCmd(), compareCmd(), coverageCmd(), reportCmd(), demoCmd())
+	root.AddCommand(runCmd(), compareCmd(), coverageCmd(), reportCmd(), demoCmd(), initCmd())
 
 	if err := root.ExecuteContext(ctx); err != nil {
 		if errors.Is(err, engine.ErrControlLeftDisabled) {
@@ -313,6 +314,62 @@ func reportCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVarP(&out, "output", "o", "", "write a self-contained HTML report to this path")
 	cmd.Flags().StringVar(&svgDir, "svg-dir", "", "write each figure as a standalone SVG into this directory")
+	return cmd
+}
+
+func initCmd() *cobra.Command {
+	var namespace, policy, service, out string
+	var port int
+
+	cmd := &cobra.Command{
+		Use:   "init networkpolicy",
+		Short: "Write an experiment for a NetworkPolicy you already run",
+		Long: "Reads a NetworkPolicy from the cluster and writes an experiment that deletes it, tries to " +
+			"reach what it protects, and puts it back. The probe builds its own pod, so nothing has to be " +
+			"deployed first.",
+		Args:         cobra.ExactArgs(1),
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if args[0] != "networkpolicy" {
+				return fmt.Errorf("unknown kind %q, the only kind so far is networkpolicy", args[0])
+			}
+			if namespace == "" || policy == "" {
+				return fmt.Errorf("--namespace and --policy are required")
+			}
+
+			target, err := k8s.CurrentTarget()
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "reading %s/%s from %s\n", namespace, policy, target)
+
+			yaml, err := scaffold.NetworkPolicy(cmd.Context(), scaffold.NetworkPolicyRequest{
+				Namespace: namespace,
+				Policy:    policy,
+				Port:      port,
+				Service:   service,
+			})
+			if err != nil {
+				return err
+			}
+
+			if out == "" {
+				fmt.Print(yaml)
+				return nil
+			}
+			if err := os.WriteFile(out, []byte(yaml), 0o644); err != nil {
+				return fmt.Errorf("write %s: %w", out, err)
+			}
+			fmt.Fprintf(os.Stderr, "written to %s\n", out)
+			fmt.Fprintf(os.Stderr, "check it, then: secha run %s --dry-run\n", out)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&namespace, "namespace", "", "namespace holding the NetworkPolicy")
+	cmd.Flags().StringVar(&policy, "policy", "", "name of the NetworkPolicy to test")
+	cmd.Flags().StringVar(&service, "service", "", "service to reach; guessed from the policy when omitted")
+	cmd.Flags().IntVar(&port, "port", 0, "port to reach; taken from the policy when omitted")
+	cmd.Flags().StringVarP(&out, "output", "o", "", "write to this file instead of stdout")
 	return cmd
 }
 

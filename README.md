@@ -250,6 +250,20 @@ not leaking is a real outcome regardless of which layer caused it.
 Stands up a throwaway target, measures the AUTH delta shown above, and removes it again. No
 configuration, no manifests to apply, nothing left behind. This is the fastest way to see the loop run.
 
+### `secha init networkpolicy`
+
+Writes an experiment for a NetworkPolicy you already run. It reads the policy from the cluster, works out
+which service sits behind it and on which port, and produces a file you can run as-is.
+
+```sh
+secha init networkpolicy --namespace prod --policy redis-allow-web-only -o prod-redis.yaml
+secha run prod-redis.yaml --dry-run
+```
+
+Nothing has to be deployed first. The generated experiment uses `k8s-tcp-connect`, which builds a
+throwaway pod, tries the connection, and deletes the pod again — so the same file works on any cluster
+that has the policy.
+
 ### `secha coverage <experiment.yaml>...`
 
 Runs a set of experiments and aggregates the measured outcome per MITRE technique.
@@ -381,6 +395,7 @@ observation window, would both be lies. Standard deviation uses the sample denom
 | `k8s-rbac` | fault | Grants an excess Role + RoleBinding, i.e. injects a misconfiguration |
 | `redis-exfil` | probe | Reads a key from redis from an attacker pod |
 | `k8s-secret-read` | probe | Reads a Secret as another ServiceAccount via impersonation |
+| `k8s-tcp-connect` | probe | Opens a TCP connection from a throwaway pod it creates and deletes |
 | `redis-key-present` | probe | Steady-state check that the attack target exists |
 | `redis-acl-log` | detector | Polls the redis `ACL LOG` — action logging |
 | `k8s-access-review` | detector | Polls `SubjectAccessReview` — posture / configuration drift |
@@ -423,7 +438,8 @@ is recorded as a measurement, not an error.
 
 Working: the full canonical loop, two faults, two detection paradigms, repeated measurement with
 aggregation, delta comparison, measured MITRE coverage with Navigator export, and figures rendered
-straight from the measurements, and a self-contained demo. 176 unit tests, none of which require a cluster.
+straight from the measurements, a self-contained demo, and scaffolding for a policy you already run.
+188 unit tests, none of which require a cluster.
 
 Known limitations, stated rather than hidden:
 
