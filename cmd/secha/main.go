@@ -42,11 +42,21 @@ func main() {
 		cancel()
 	}()
 
+	var cluster k8s.Selection
 	root := &cobra.Command{
-		Use:   "secha",
-		Short: "Security Chaos Engineering experiment runner",
+		Use:     "secha",
+		Short:   "Security Chaos Engineering experiment runner",
+		Version: versionString(),
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			k8s.Select(cluster)
+		},
 	}
-	root.AddCommand(runCmd(), compareCmd(), coverageCmd(), reportCmd(), demoCmd(), initCmd())
+	root.PersistentFlags().StringVar(&cluster.Kubeconfig, "kubeconfig", "",
+		"path to the kubeconfig to use (default: $KUBECONFIG, then ~/.kube/config)")
+	root.PersistentFlags().StringVar(&cluster.Context, "context", "",
+		"kubeconfig context to run against (default: the file's current-context)")
+	root.SetVersionTemplate("{{.Version}}\n")
+	root.AddCommand(runCmd(), compareCmd(), coverageCmd(), reportCmd(), demoCmd(), initCmd(), versionCmd())
 
 	if err := root.ExecuteContext(ctx); err != nil {
 		if errors.Is(err, engine.ErrControlLeftDisabled) {
@@ -61,8 +71,12 @@ func runCmd() *cobra.Command {
 	var output string
 	var dryRun bool
 	cmd := &cobra.Command{
-		Use:          "run <experiment.yaml>",
-		Short:        "Run a fault + probe + observation experiment",
+		Use:   "run <experiment.yaml>",
+		Short: "Run a fault + probe + observation experiment",
+		Long: "Runs one experiment end to end: checks the steady state, disables the security control named " +
+			"as the fault, runs the attack it was blocking, watches the detectors, restores the control, and " +
+			"checks the steady state again. Prints the resilience indicators; --repeat aggregates several " +
+			"runs and --output json writes them for secha report. Nothing is changed with --dry-run.",
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -161,8 +175,11 @@ func printDryRun(w io.Writer, exp *experiment.Experiment, target k8s.Target) {
 
 func compareCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:          "compare <baseline.yaml> <treatment.yaml>",
-		Short:        "Run two experiments and report the resilience delta between them",
+		Use:   "compare <baseline.yaml> <treatment.yaml>",
+		Short: "Run two experiments and report the resilience delta between them",
+		Long: "Runs the baseline experiment, then the treatment, and prints each indicator side by side with " +
+			"a verdict: improved, regressed or neutral. Use it to put a number on one control, by running " +
+			"the same fault and attack with and without it.",
 		Args:         cobra.ExactArgs(2),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -204,8 +221,12 @@ func coverageCmd() *cobra.Command {
 	var navigator string
 	var platforms []string
 	cmd := &cobra.Command{
-		Use:          "coverage <experiment.yaml>...",
-		Short:        "Run experiments and report measured ATT&CK and D3FEND coverage",
+		Use:   "coverage <experiment.yaml>...",
+		Short: "Run experiments and report measured ATT&CK and D3FEND coverage",
+		Long: "Runs the experiments and groups the outcome by the ATT&CK and D3FEND IDs annotated on their " +
+			"faults, probes and detectors. Each technique scores 100 when the attack was blocked, 50 when " +
+			"it succeeded but was detected, and 0 when it succeeded unseen. --navigator writes the result as " +
+			"an ATT&CK Navigator layer.",
 		Args:         cobra.MinimumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {

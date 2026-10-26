@@ -62,7 +62,17 @@ verify steady state  ──► recovery integrity: measured, not assumed
 
 ## Install
 
-Requires Go 1.26+ and a kubeconfig pointing at the target cluster.
+`secha` is a single static binary. It needs a kubeconfig for the cluster you want to test, nothing else.
+
+Download the latest release for your platform (`linux`/`darwin`, `amd64`/`arm64`):
+
+```sh
+curl -sL https://github.com/Thran34/secha/releases/latest/download/secha_$(uname -s | tr A-Z a-z)_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz | tar xz secha
+sudo install secha /usr/local/bin/
+secha version
+```
+
+With Go 1.26+:
 
 ```sh
 go install github.com/Thran34/secha/cmd/secha@latest
@@ -73,7 +83,7 @@ Or from a clone:
 ```sh
 git clone https://github.com/Thran34/secha.git
 cd secha
-make build       # builds ./bin/secha
+make build       # builds ./bin/secha with the version stamped in
 ```
 
 ## Safety
@@ -83,7 +93,14 @@ an incident.
 
 **It prints the cluster before it does anything.** Every run starts with the kubeconfig context and API
 server it is about to act on. A kubeconfig whose current context drifted to the wrong cluster would
-otherwise run the whole experiment somewhere unintended and report perfectly valid numbers.
+otherwise run the whole experiment somewhere unintended and report perfectly valid numbers. Name the
+target explicitly rather than trusting whatever `current-context` happens to be:
+
+```sh
+secha run exp.yaml --context secha-lab --kubeconfig ~/.kube/lab.yaml
+```
+
+A context that does not exist in the file is refused, not silently replaced by the current one.
 
 **It restores the control even when interrupted.** Ctrl-C, `SIGTERM`, a failing probe, a fault that
 half-applied before erroring — the control goes back. The restore runs on its own context, so a
@@ -176,8 +193,12 @@ have lost its detection without a single alert firing to say so.
 
 ## Quickstart
 
-The `examples/` directory contains seven ready experiments. `lab/` in the parent repository has the
-manifests that create the target workloads they expect.
+The `examples/` directory contains the seven experiments measured for the research behind `secha`.
+They are written against our lab cluster (namespaces `target` and `attacker`, a redis with AUTH, a
+ValidatingAdmissionPolicy, Falco) and will not run elsewhere as-is. Read them as reference for the
+format; to run something against your own cluster start with `secha demo` or `secha init`.
+
+This is what one of them reports on the lab:
 
 ```sh
 secha run examples/exp02-rbac.yaml

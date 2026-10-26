@@ -34,10 +34,26 @@ func (t Target) String() string {
 	return fmt.Sprintf("%s (%s)", t.Context, t.Server)
 }
 
-func CurrentTarget() (Target, error) {
-	loader := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		clientcmd.NewDefaultClientConfigLoadingRules(), &clientcmd.ConfigOverrides{})
+type Selection struct {
+	Kubeconfig string
+	Context    string
+}
 
+var selected Selection
+
+func Select(s Selection) {
+	selected = s
+}
+
+func loader() clientcmd.ClientConfig {
+	rules := clientcmd.NewDefaultClientConfigLoadingRules()
+	rules.ExplicitPath = selected.Kubeconfig
+	overrides := &clientcmd.ConfigOverrides{CurrentContext: selected.Context}
+	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(rules, overrides)
+}
+
+func CurrentTarget() (Target, error) {
+	loader := loader()
 	cfg, err := loader.ClientConfig()
 	if err != nil {
 		return Target{}, fmt.Errorf("load kubeconfig: %w", err)
@@ -46,13 +62,15 @@ func CurrentTarget() (Target, error) {
 	if err != nil {
 		return Target{Server: cfg.Host}, nil
 	}
-	return Target{Context: raw.CurrentContext, Server: cfg.Host}, nil
+	context := raw.CurrentContext
+	if selected.Context != "" {
+		context = selected.Context
+	}
+	return Target{Context: context, Server: cfg.Host}, nil
 }
 
 func NewClient() (*Client, error) {
-	rules := clientcmd.NewDefaultClientConfigLoadingRules()
-	cfg, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		rules, &clientcmd.ConfigOverrides{}).ClientConfig()
+	cfg, err := loader().ClientConfig()
 	if err != nil {
 		return nil, fmt.Errorf("load kubeconfig: %w", err)
 	}
