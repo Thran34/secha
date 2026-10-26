@@ -322,33 +322,42 @@ func initCmd() *cobra.Command {
 	var port int
 
 	cmd := &cobra.Command{
-		Use:   "init networkpolicy",
-		Short: "Write an experiment for a NetworkPolicy you already run",
-		Long: "Reads a NetworkPolicy from the cluster and writes an experiment that deletes it, tries to " +
-			"reach what it protects, and puts it back. The probe builds its own pod, so nothing has to be " +
-			"deployed first.",
+		Use:   "init networkpolicy|podsecurity",
+		Short: "Write an experiment for a control you already run",
+		Long: "Reads a security control from the cluster and writes an experiment that removes it, runs the " +
+			"attack it was blocking, and puts it back. networkpolicy deletes a NetworkPolicy and tries to " +
+			"reach what it protects; podsecurity relaxes a namespace's Pod Security level and tries to start " +
+			"a privileged pod. The probes build their own pods, so nothing has to be deployed first.",
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if args[0] != "networkpolicy" {
-				return fmt.Errorf("unknown kind %q, the only kind so far is networkpolicy", args[0])
+			if namespace == "" {
+				return fmt.Errorf("--namespace is required")
 			}
-			if namespace == "" || policy == "" {
-				return fmt.Errorf("--namespace and --policy are required")
-			}
-
 			target, err := k8s.CurrentTarget()
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(os.Stderr, "reading %s/%s from %s\n", namespace, policy, target)
 
-			yaml, err := scaffold.NetworkPolicy(cmd.Context(), scaffold.NetworkPolicyRequest{
-				Namespace: namespace,
-				Policy:    policy,
-				Port:      port,
-				Service:   service,
-			})
+			var yaml string
+			switch args[0] {
+			case "networkpolicy":
+				if policy == "" {
+					return fmt.Errorf("--policy is required for networkpolicy")
+				}
+				fmt.Fprintf(os.Stderr, "reading networkpolicy %s/%s from %s\n", namespace, policy, target)
+				yaml, err = scaffold.NetworkPolicy(cmd.Context(), scaffold.NetworkPolicyRequest{
+					Namespace: namespace,
+					Policy:    policy,
+					Port:      port,
+					Service:   service,
+				})
+			case "podsecurity":
+				fmt.Fprintf(os.Stderr, "reading pod security labels of namespace %s from %s\n", namespace, target)
+				yaml, err = scaffold.PodSecurity(cmd.Context(), scaffold.PodSecurityRequest{Namespace: namespace})
+			default:
+				return fmt.Errorf("unknown kind %q, want networkpolicy or podsecurity", args[0])
+			}
 			if err != nil {
 				return err
 			}
@@ -365,8 +374,8 @@ func initCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&namespace, "namespace", "", "namespace holding the NetworkPolicy")
-	cmd.Flags().StringVar(&policy, "policy", "", "name of the NetworkPolicy to test")
+	cmd.Flags().StringVar(&namespace, "namespace", "", "namespace holding the control")
+	cmd.Flags().StringVar(&policy, "policy", "", "name of the NetworkPolicy to test (networkpolicy only)")
 	cmd.Flags().StringVar(&service, "service", "", "service to reach; guessed from the policy when omitted")
 	cmd.Flags().IntVar(&port, "port", 0, "port to reach; taken from the policy when omitted")
 	cmd.Flags().StringVarP(&out, "output", "o", "", "write to this file instead of stdout")

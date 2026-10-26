@@ -1,0 +1,43 @@
+apiVersion: secha/v1
+kind: Experiment
+metadata:
+  name: podsecurity-privileged-pod-falco
+  hypothesis: >
+    Same relaxed Pod Security level and the same privileged pod, observed by
+    Falco reading the Kubernetes audit log. The stock Create Privileged Pod rule
+    does not look at the response code, so it should fire on the attempt whether
+    or not admission lets the pod through. This measures the audit path, not
+    whether the pod ever ran.
+steadyState:
+  checks:
+    - type: k8s-pod-create
+      as:
+        namespace: attacker
+        name: default
+      target:
+        namespace: target
+      expect:
+        dataExposed: false
+fault:
+  type: k8s-podsecurity
+  action: relax
+  target:
+    namespace: target
+  level: privileged
+probe:
+  type: k8s-pod-create
+  attack: [T1610, T1611]
+  as:
+    namespace: attacker
+    name: default
+  target:
+    namespace: target
+observe:
+  window: 10s
+  detectors:
+    - type: falco-alert
+      rules: ["Create Privileged Pod"]
+      match:
+        ka.target.namespace: target
+        ka.user.name: system:serviceaccount:attacker:default
+indicators: [exposure, detection_coverage, mttd, recovery_latency]

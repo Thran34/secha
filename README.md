@@ -176,7 +176,7 @@ have lost its detection without a single alert firing to say so.
 
 ## Quickstart
 
-The `examples/` directory contains four ready experiments. `lab/` in the parent repository has the
+The `examples/` directory contains seven ready experiments. `lab/` in the parent repository has the
 manifests that create the target workloads they expect.
 
 ```sh
@@ -263,6 +263,22 @@ secha run prod-redis.yaml --dry-run
 Nothing has to be deployed first. The generated experiment uses `k8s-tcp-connect`, which builds a
 throwaway pod, tries the connection, and deletes the pod again — so the same file works on any cluster
 that has the policy.
+
+### `secha init podsecurity`
+
+Writes an experiment for a namespace that enforces a Pod Security level. It reads the
+`pod-security.kubernetes.io/enforce` label, and produces an experiment that relaxes it to `privileged`,
+tries to start a privileged pod, and puts the label back. If the namespace has no enforce label, or
+already allows everything, it says so instead of writing a file.
+
+```sh
+secha init podsecurity --namespace prod -o prod-psa.yaml
+secha run prod-psa.yaml --dry-run
+```
+
+The probe runs as the operator's own identity by default. Pod Security Admission applies to cluster
+admins too, so that is enough to test it; set `as:` in the generated file to run the attack as a
+specific ServiceAccount instead.
 
 ### `secha coverage <experiment.yaml>...`
 
@@ -393,12 +409,16 @@ observation window, would both be lies. Standard deviation uses the sample denom
 |---|---|---|
 | `k8s-networkpolicy` | fault | Deletes and restores a NetworkPolicy |
 | `k8s-rbac` | fault | Grants an excess Role + RoleBinding, i.e. injects a misconfiguration |
+| `k8s-podsecurity` | fault | Relaxes a namespace's Pod Security level and restores it |
 | `redis-exfil` | probe | Reads a key from redis from an attacker pod |
-| `k8s-secret-read` | probe | Reads a Secret as another ServiceAccount via impersonation |
+| `k8s-secret-read` | probe | Reads a Secret with a real token minted for another ServiceAccount |
+| `k8s-pod-create` | probe | Tries to create a privileged pod and deletes it if admission lets it through |
 | `k8s-tcp-connect` | probe | Opens a TCP connection from a throwaway pod it creates and deletes |
 | `redis-key-present` | probe | Steady-state check that the attack target exists |
 | `redis-acl-log` | detector | Polls the redis `ACL LOG` — action logging |
 | `k8s-access-review` | detector | Polls `SubjectAccessReview` — posture / configuration drift |
+| `k8s-namespace-label` | detector | Polls a namespace label — posture / configuration drift |
+| `falco-alert` | detector | Reads Falco's JSON output from its pod and matches on rule and fields |
 
 The two detectors are deliberately different paradigms. Action logging is reactive: it needs the attack to
 happen before there is anything to see. Posture checking is proactive: the drift exists the moment the
@@ -436,10 +456,11 @@ is recorded as a measurement, not an error.
 
 ## Status
 
-Working: the full canonical loop, two faults, two detection paradigms, repeated measurement with
-aggregation, delta comparison, measured MITRE coverage with Navigator export, and figures rendered
-straight from the measurements, a self-contained demo, and scaffolding for a policy you already run.
-188 unit tests, none of which require a cluster.
+Working: the full canonical loop, three faults, two detection paradigms, Falco as a third-party
+detector, repeated measurement with aggregation, delta comparison, measured MITRE coverage with
+Navigator export, figures rendered straight from the measurements, a self-contained demo, and
+scaffolding for a NetworkPolicy or a Pod Security level you already run.
+205 unit tests, none of which require a cluster.
 
 Known limitations, stated rather than hidden:
 
@@ -449,8 +470,13 @@ Known limitations, stated rather than hidden:
 - Recovery integrity can be flaky for NetworkPolicy faults — the CNI needs a moment to enforce a
   re-created policy, and verification runs immediately.
 
-Not implemented yet: runtime detection through Falco, Prometheus/Grafana as a signal source, faults for
-mTLS and secrets management.
+- The stock Falco `Create Privileged Pod` rule fires on the audit event of the request, not on its
+  outcome, so with a `Request`-level audit policy it sees the attempt whether or not admission blocks
+  the pod. Relaxing Pod Security therefore does not mask the audit path; it masks whatever would have
+  observed the running container.
+
+Not implemented yet: syscall-level Falco (runtime detection), Prometheus/Grafana as a signal source,
+faults for mTLS and secrets management.
 
 ## License
 

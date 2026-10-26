@@ -1,0 +1,42 @@
+apiVersion: secha/v1
+kind: Experiment
+metadata:
+  name: podsecurity-privileged-pod
+  hypothesis: >
+    The target namespace enforces the baseline Pod Security level, so a service
+    account that may create pods there still cannot start a privileged one.
+    Relaxing the level to privileged removes that admission check. The attacker
+    then gets a privileged container, and the only signal left is the changed
+    label on the namespace.
+steadyState:
+  checks:
+    - type: k8s-pod-create
+      as:
+        namespace: attacker
+        name: default
+      target:
+        namespace: target
+      expect:
+        dataExposed: false
+fault:
+  type: k8s-podsecurity
+  action: relax
+  target:
+    namespace: target
+  level: privileged
+probe:
+  type: k8s-pod-create
+  attack: [T1610, T1611]
+  as:
+    namespace: attacker
+    name: default
+  target:
+    namespace: target
+observe:
+  window: 10s
+  detectors:
+    - type: k8s-namespace-label
+      namespace: target
+      label: pod-security.kubernetes.io/enforce
+      want: baseline
+indicators: [exposure, detection_coverage, mttd, recovery_latency]
