@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/Thran34/secha/internal/detector"
@@ -91,6 +92,10 @@ func Run(ctx context.Context, exp *experiment.Experiment) (report *indicator.Rep
 		}
 	}
 
+	octx, stopObserving := context.WithCancel(ctx)
+	defer stopObserving()
+	observations := observe(octx, detectors, window)
+
 	res, err := p.Run(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("run probe: %w", err)
@@ -98,17 +103,14 @@ func Run(ctx context.Context, exp *experiment.Experiment) (report *indicator.Rep
 	report.Reachable = res.Reachable
 	report.DataExposed = res.DataExposed
 
-	for _, d := range detectors {
-		sig, err := d.Observe(ctx, window)
-		if err != nil {
-			return nil, fmt.Errorf("observe %s: %w", d.Describe(), err)
-		}
-		if sig.Detected {
-			report.Detected = true
-			mttd := sig.At.Sub(faultAt)
-			report.MTTD = &mttd
-			break
-		}
+	first, err := earliest(observations, len(detectors))
+	if err != nil {
+		return nil, err
+	}
+	if first.Detected {
+		report.Detected = true
+		mttd := first.At.Sub(faultAt)
+		report.MTTD = &mttd
 	}
 
 	restoreStart := time.Now()
@@ -129,6 +131,49 @@ func Run(ctx context.Context, exp *experiment.Experiment) (report *indicator.Rep
 	}
 
 	return report, nil
+}
+
+type observation struct {
+	signal detector.Signal
+	err    error
+	source string
+}
+
+func observe(ctx context.Context, detectors []detector.Detector, window time.Duration) <-chan observation {
+	out := make(chan observation, len(detectors))
+	var watching sync.WaitGroup
+	watching.Add(len(detectors))
+	for _, d := range detectors {
+		go func(d detector.Detector) {
+			watching.Done()
+			sig, err := d.Observe(ctx, window)
+			out <- observation{signal: sig, err: err, source: d.Describe()}
+		}(d)
+	}
+	watching.Wait()
+	return out
+}
+
+func earliest(observations <-chan observation, n int) (detector.Signal, error) {
+	var first detector.Signal
+	var errs error
+	for i := 0; i < n; i++ {
+		o := <-observations
+		if o.err != nil {
+			errs = errors.Join(errs, fmt.Errorf("observe %s: %w", o.source, o.err))
+			continue
+		}
+		if !o.signal.Detected {
+			continue
+		}
+		if !first.Detected || o.signal.At.Before(first.At) {
+			first = o.signal
+		}
+	}
+	if errs != nil {
+		return detector.Signal{}, errs
+	}
+	return first, nil
 }
 
 func verifyRecovery(ctx context.Context, checks []experiment.Check) ([]steadystate.Violation, error) {

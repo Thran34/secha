@@ -1,4 +1,4 @@
-secha - Security Chaos Engineering experiment runner
+secha - measures the resilience of a Kubernetes system by directed fault injection into its security controls
 Copyright 2026 Andrzej Jasiński
 
 This product was created as part of the master's thesis

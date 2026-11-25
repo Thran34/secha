@@ -62,10 +62,26 @@ func TestMTTDChartIsWellFormedAndNamesEveryExperiment(t *testing.T) {
 }
 
 func TestMTTDChartSaysNeverDetectedRatherThanPlottingZero(t *testing.T) {
-	svg := MTTDChart([]results.File{preventedFile("rbac-secret-read")}, Light)
+	undetected := results.File{
+		Experiment: "redis-open",
+		Runs:       []results.Run{{FaultApplied: true, DataExposed: true}},
+		Summary:    results.Summary{Runs: 1, FaultAppliedRate: 1, DataExposedRate: 1},
+	}
+	svg := MTTDChart([]results.File{undetected}, Light)
 
 	if !strings.Contains(svg, "never detected") {
 		t.Error("an experiment that never detected must say so; plotting it at zero would read as instant detection")
+	}
+}
+
+func TestMTTDChartDoesNotBlameDetectionWhenTheFaultWasRejected(t *testing.T) {
+	svg := MTTDChart([]results.File{preventedFile("rbac-secret-read")}, Light)
+
+	if strings.Contains(svg, "never detected") {
+		t.Error("a rejected fault leaves nothing to detect; calling it 'never detected' reads as a detection failure")
+	}
+	if !strings.Contains(svg, "fault rejected") {
+		t.Error("a rejected fault must be labelled as prevention, the strongest outcome on that axis")
 	}
 }
 

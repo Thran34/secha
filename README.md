@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>Measure whether your detection survives the removal of the control that masks it today.</strong>
+  <strong>secha measures the resilience of a Kubernetes system by directed fault injection into its security controls.</strong>
 </p>
 
 <p align="center">
@@ -13,8 +13,10 @@
 
 <p align="center">
   <a href="https://github.com/Thran34/secha/actions/workflows/ci.yml"><img src="https://github.com/Thran34/secha/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
+  <a href="https://github.com/Thran34/secha/releases/latest"><img src="https://img.shields.io/github/v/release/Thran34/secha" alt="latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="license Apache-2.0"></a>
   <a href="https://secha.dev"><img src="https://img.shields.io/badge/docs-secha.dev-informational" alt="secha.dev"></a>
+  <a href="https://doi.org/10.5281/zenodo.23671613"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.23671613.svg" alt="DOI"></a>
 </p>
 
 ---
@@ -24,6 +26,14 @@ control, runs the attack that control was supposed to stop, and measures whether
 
 The output is not a pass/fail. It is a set of numbers: was the data exposed, did anything detect the
 attack, how long did detection take, did the cluster come back to the state it started in.
+
+<p align="center">
+  <img src="https://secha.dev/demo.gif" alt="secha demo: the same fault against redis with and without AUTH, and the resilience delta between them" width="760">
+</p>
+
+That is `secha demo` on a real cluster, unedited: it builds its own target, removes the same control
+from a protected and an unprotected copy, and shows what the control was worth — including the detection
+that disappeared with it.
 
 ## Why another chaos tool
 
@@ -436,7 +446,7 @@ observation window, would both be lies. Standard deviation uses the sample denom
 | `k8s-pod-create` | probe | Tries to create a privileged pod and deletes it if admission lets it through |
 | `k8s-tcp-connect` | probe | Opens a TCP connection from a throwaway pod it creates and deletes |
 | `redis-key-present` | probe | Steady-state check that the attack target exists |
-| `redis-acl-log` | detector | Polls the redis `ACL LOG` — action logging |
+| `redis-acl-log` | detector | Watches the redis `ACL LOG` from inside the pod, one exec held open — action logging |
 | `k8s-access-review` | detector | Polls `SubjectAccessReview` — posture / configuration drift |
 | `k8s-namespace-label` | detector | Polls a namespace label — posture / configuration drift |
 | `falco-alert` | detector | Reads Falco's JSON output from its pod and matches on rule and fields |
@@ -485,9 +495,15 @@ scaffolding for a NetworkPolicy or a Pod Security level you already run.
 
 Known limitations, stated rather than hidden:
 
-- Observation is sequential, so `mttd` for a posture detector includes the probe duration. The drift
-  exists the moment the fault lands; concurrent observation would report a smaller number.
-- The `redis-acl-log` detector polls, which adds jitter on the order of the poll interval.
+- `mttd` is measured from fault injection, and every detector starts watching at that moment, before
+  the probe runs. For a posture detector that is the honest number: the drift exists as soon as the
+  fault lands. For an action-log detector it necessarily includes the time the attack itself takes,
+  because there is nothing to log until it happens. The observation window also starts at injection,
+  so a probe slower than the window would leave no time for a late signal.
+- Detectors that poll add jitter on the order of their poll interval (50 ms inside the redis pod,
+  250 ms for the API-based posture checks). A detector that opens a new exec session per poll was
+  measured to slow the attack it was watching by roughly 2×; `redis-acl-log` now holds a single
+  session open for the whole window for that reason.
 - Recovery integrity can be flaky for NetworkPolicy faults — the CNI needs a moment to enforce a
   re-created policy, and verification runs immediately.
 

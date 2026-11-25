@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: If you use secha in research, please cite it using these metadata.
+title: "secha: measuring Kubernetes resilience by directed fault injection into security controls"
+type: software
+authors:
+  - family-names: Jasiński
+    given-names: Andrzej
+repository-code: https://github.com/Thran34/secha
+url: https://secha.dev
+license: Apache-2.0
+doi: 10.5281/zenodo.23671613
+version: 0.1.0
+date-released: "2026-10-26"
+keywords:
+  - security chaos engineering
+  - kubernetes
+  - resilience
+  - detection engineering

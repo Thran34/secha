@@ -45,7 +45,7 @@ func main() {
 	var cluster k8s.Selection
 	root := &cobra.Command{
 		Use:     "secha",
-		Short:   "Security Chaos Engineering experiment runner",
+		Short:   "Measure Kubernetes resilience by directed fault injection into security controls",
 		Version: versionString(),
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
 			k8s.Select(cluster)

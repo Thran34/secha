@@ -14,7 +14,10 @@ func init() {
 	Register("redis-acl-log", newACLLogDetector)
 }
 
-const aclLogPollInterval = 250 * time.Millisecond
+const (
+	aclLogPollInterval = 50 * time.Millisecond
+	aclLogExecGrace    = 5 * time.Second
+)
 
 type aclLogConfig struct {
 	Target struct {
@@ -69,30 +72,41 @@ func (d *aclLogDetector) Reset(ctx context.Context) error {
 	return err
 }
 
-func (d *aclLogDetector) Observe(ctx context.Context, window time.Duration) (Signal, error) {
-	deadline := time.Now().Add(window)
-	for {
-		out, err := d.redisCLI(ctx, "ACL LOG")
-		if err != nil {
-			return Signal{}, err
-		}
-		if isAuthDenial(out) {
-			return Signal{
-				Detected: true,
-				At:       time.Now(),
-				Source:   "redis-acl-log",
-				Detail:   "auth denial recorded in redis ACL LOG",
-			}, nil
-		}
-		if time.Now().After(deadline) {
-			return Signal{Detected: false, Source: "redis-acl-log"}, nil
-		}
-		select {
-		case <-ctx.Done():
-			return Signal{}, ctx.Err()
-		case <-time.After(aclLogPollInterval):
-		}
+func watchScript(window time.Duration) string {
+	polls := int(window / aclLogPollInterval)
+	if polls < 1 {
+		polls = 1
 	}
+	return fmt.Sprintf(`AUTH=""; [ -n "$REDIS_PASSWORD" ] && AUTH="-a $REDIS_PASSWORD --no-auth-warning"
+i=0
+while [ $i -lt %d ]; do
+  case "$(redis-cli $AUTH ACL LOG 2>/dev/null)" in *reason*auth*) echo DETECTED; exit 0;; esac
+  i=$((i+1)); sleep %.3f
+done
+echo NONE`, polls, aclLogPollInterval.Seconds())
+}
+
+func (d *aclLogDetector) Observe(ctx context.Context, window time.Duration) (Signal, error) {
+	pod, err := d.client.FirstRunningPod(ctx, d.namespace, d.selector)
+	if err != nil {
+		return Signal{}, err
+	}
+	wctx, cancel := context.WithTimeout(ctx, window+aclLogExecGrace)
+	defer cancel()
+	stdout, stderr, err := d.client.Exec(wctx, d.namespace, pod, "", []string{"sh", "-c", watchScript(window)})
+	at := time.Now()
+	if err != nil {
+		return Signal{}, fmt.Errorf("watch redis ACL LOG in %s/%s: %w (%s)", d.namespace, pod, err, strings.TrimSpace(stderr))
+	}
+	if !strings.Contains(stdout, "DETECTED") {
+		return Signal{Detected: false, Source: "redis-acl-log"}, nil
+	}
+	return Signal{
+		Detected: true,
+		At:       at,
+		Source:   "redis-acl-log",
+		Detail:   "auth denial recorded in redis ACL LOG",
+	}, nil
 }
 
 func isAuthDenial(aclLog string) bool {

@@ -48,7 +48,7 @@ func MTTDChart(files []results.File, p Palette) string {
 		c.text(float64(labelGutter)-16, y+4, f.Experiment, 12, 400, p.TextPrimary, "end")
 
 		if f.Summary.MTTDMs == nil {
-			c.text(plotLeft, y+4, "never detected", 12, 400, p.Muted, "start")
+			c.text(plotLeft, y+4, undetectedLabel(f.Summary), 12, 400, p.Muted, "start")
 			continue
 		}
 
@@ -80,6 +80,13 @@ var rateSeries = []struct {
 	{"fault applied", func(s results.Summary) float64 { return s.FaultAppliedRate }},
 	{"data exposed", func(s results.Summary) float64 { return s.DataExposedRate }},
 	{"detected", func(s results.Summary) float64 { return s.DetectedRate }},
+}
+
+func undetectedLabel(s results.Summary) string {
+	if s.FaultAppliedRate == 0 {
+		return "fault rejected, nothing to detect"
+	}
+	return "never detected"
 }
 
 func RatesChart(files []results.File, p Palette) string {
